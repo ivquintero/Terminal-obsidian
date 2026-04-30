@@ -88,41 +88,34 @@ if modo == "ESCÁNER":
 
     # El secreto: st.fragment con una variable de tiempo
     @st.fragment(run_every=refresh_rate)
-    def render_live_scanner():
-        # Añadimos un pequeño truco visual de carga
-        with st.spinner("Actualizando Matriz..."):
-            activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
-            cols = st.columns(4)
+    # --- DENTRO DE TU FUNCIÓN render_live_scanner ---
+for i, ticker in enumerate(activos):
+    try:
+        # 1. Descarga con limpieza inmediata
+        data = yf.download(ticker, period="1d", interval="1m", progress=False)
+        
+        if not data.empty:
+            # 2. SEGURO ANTI-ERRORES: Seleccionamos la columna 'Close' de forma robusta
+            # Si yfinance manda múltiples niveles, .iloc[:,-1] toma el último valor real
+            close_col = data['Close']
             
-            for i, ticker in enumerate(activos):
-                # Forzamos la descarga fresca ignorando cualquier caché previo
-                # Nota: añadimos un parámetro dummy para romper el caché
-                data = yf.download(ticker, period="1d", interval="1m", progress=False)
-                
-                if not data.empty:
-                    last_price = float(data['Close'].iloc[-1])
-                    
-                    # Usamos una volatilidad genérica rápida para el movimiento visual 
-                    # o calculamos la real si prefieres precisión total
-                    mu, sigma = 0.0001, 0.02 
-                    
-                    n_sims = 1000
-                    sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
-                    prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
-                    
-                    with cols[i % 4]:
-                        color = "cyan" if prob_up > 50.5 else "red" if prob_up < 49.5 else "white"
-                        st.markdown(f"""
-                            <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 5px;">
-                                <p style="margin:0; font-size:10px; color:#555;">{ticker}</p>
-                                <h3 style="margin:0; color:{color};">{prob_up:.2f}%</h3>
-                                <p style="margin:0; font-size:9px; color:#333;">LIVE UPDATE</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-        st.toast(f"Datos sincronizados: {time.strftime('%H:%M:%S')}")
-
-    render_live_scanner()
+            # Si close_col sigue siendo un DataFrame (por el error de yfinance), 
+            # tomamos la última columna y luego la última fila.
+            if isinstance(close_col, pd.DataFrame):
+                last_price_raw = close_col.iloc[-1, 0]
+            else:
+                last_price_raw = close_col.iloc[-1]
+            
+            # 3. Convertimos a float puro
+            last_price = float(last_price_raw)
+            
+            # --- El resto del cálculo sigue igual ---
+            mu, sigma = 0.0001, 0.02 
+            n_sims = 1000
+            sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
+            prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
+            
+            # ... (tu código de renderizado de tarjetas)
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
