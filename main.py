@@ -79,43 +79,42 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
 
 # --- MÓDULO 1: ESCÁNER ---
 # --- MÓDULO 1: ESCÁNER ---
+# --- MÓDULO 1: ESCÁNER (Versión Limpia) ---
 if modo == "ESCÁNER":
     st.header("♰ REAL-TIME MARKET SCANNER")
-    # Lista de activos (puedes añadir más aquí)
     activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
     
     if st.button("INICIAR ESCANEO CUÁNTICO"):
         cols = st.columns(4)
         for i, ticker in enumerate(activos):
             try:
-                # 1. Obtención y limpieza de datos
+                # 1. Obtenemos datos
                 df, ret = get_data(ticker)
                 
-                # Extraemos el último precio como un número flotante puro
-                # Esto evita el error "Lengths must match to compare"
+                # LIMPIEZA CRÍTICA: Extraemos el valor numérico puro
+                # Esto elimina cualquier "link" o metadata extra
                 last_price = float(df.iloc[-1])
                 
-                # 2. Ejecución de Simulación Monte Carlo
-                # Generamos 50 rutas para 7 días
-                sim_results = monte_carlo(last_price, ret.mean(), ret.std(), 7, 50)
+                # 2. Simulación
+                mu = float(ret.mean())
+                sigma = float(ret.std())
+                sim_results = monte_carlo(last_price, mu, sigma, 7, 50)
                 
-                # Tomamos solo los precios del último día de la simulación
+                # 3. Cálculo de probabilidad
                 final_prices = sim_results[-1]
+                prob_up = float((np.sum(final_prices > last_price) / 50) * 100)
                 
-                # 3. Cálculo de Probabilidad (Comparación numérica)
-                prob_up = (np.sum(final_prices > last_price) / 50) * 100
-                
-                # 4. Renderizado de Tarjetas Góticas
+                # 4. Renderizado limpio
                 with cols[i % 4]:
                     color = "cyan" if prob_up > 55 else "red" if prob_up < 45 else "gray"
                     st.markdown(f"""
-                        <div style="border: 1px solid {color}; padding: 10px; background: #050505; margin-bottom: 10px; border-radius: 2px;">
-                            <p style="margin:0; font-size:12px; color:#666; font-family:monospace;">{ticker}</p>
+                        <div style="border: 1px solid {color}; padding: 10px; background: #050505; margin-bottom: 10px;">
+                            <p style="margin:0; font-size:12px; color:#666;">{ticker}</p>
                             <h3 style="margin:0; color:{color}; font-family:monospace;">{prob_up:.1f}%</h3>
-                            <p style="margin:0; font-size:10px; color:white; font-family:monospace;">PROB. ÉXITO (7D)</p>
+                            <p style="margin:0; font-size:10px; color:white;">PROB. ÉXITO (7D)</p>
                         </div>
                     """, unsafe_allow_html=True)
-            except Exception as e:
+            except Exception:
                 with cols[i % 4]:
                     st.error(f"Error en {ticker}")
 
