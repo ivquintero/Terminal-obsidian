@@ -81,24 +81,45 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    st.sidebar.subheader("♰ PANEL DE CONTROL PRO")
+    st.sidebar.subheader("♰ EXPLORADOR DE ACTIVOS PRO")
     
-    # --- CAMBIO AQUÍ: Ahora tú controlas la lista desde la interfaz ---
-    input_texto = st.sidebar.text_area(
-        "LISTA DE ACTIVOS (Separados por coma)", 
-        value="BTC-USD, ETH-USD, SOL-USD, NVDA, AAPL, TSLA, META, GOOGL"
+    # Diccionario de ayuda para que no tengas que recordar los tickers
+    biblioteca_activos = {
+        "Bitcoin (BTC)": "BTC-USD",
+        "Ethereum (ETH)": "ETH-USD",
+        "Solana (SOL)": "SOL-USD",
+        "NVIDIA (NVDA)": "NVDA",
+        "Apple (AAPL)": "AAPL",
+        "Tesla (TSLA)": "TSLA",
+        "Oro (Gold)": "GC=F",
+        "S&P 500": "^GSPC",
+        "Microsoft (MSFT)": "MSFT",
+        "Amazon (AMZN)": "AMZN",
+        "Meta (Facebook)": "META",
+        "Google (GOOGL)": "GOOGL",
+        "Netflix (NFLX)": "NFLX"
+    }
+
+    # El selector tipo "pestañita" con búsqueda
+    nombres_elegidos = st.sidebar.multiselect(
+        "BUSCAR Y ELEGIR PRODUCTOS:",
+        options=list(biblioteca_activos.keys()),
+        default=["Bitcoin (BTC)", "NVIDIA (NVDA)", "Oro (Gold)"]
     )
-    # Convertimos el texto en una lista real
-    lista_activos = [a.strip().upper() for a in input_texto.split(",") if a.strip()]
+
+    # Convertimos los nombres bonitos a tickers reales para yfinance
+    lista_activos = [biblioteca_activos[nombre] for nombre in nombres_elegidos]
 
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
 
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
-        # Usamos 'lista_activos' que definimos arriba
+        if not lista_activos:
+            st.warning("Selecciona al menos un activo en la barra lateral para comenzar el escaneo.")
+            return
+
         cols = st.columns(4)
-        
-        with st.spinner("Sincronizando..."):
+        with st.spinner("Sincronizando Red..."):
             for i, ticker in enumerate(lista_activos):
                 try:
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
@@ -131,11 +152,10 @@ if modo == "ESCÁNER":
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
-                except Exception:
+                except:
                     continue
 
     render_live_scanner()
-
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
     col1, col2 = st.columns([1, 3])
