@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.stats import skew, kurtosis
 from datetime import datetime
+import time # Necesario para el temporizador
 
 # --- CONFIGURACIÓN ESTÉTICA GÓTICA ---
 st.set_page_config(page_title="OBSIDIANA QUANT TERMINAL", layout="wide")
@@ -77,53 +78,50 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-# --- MÓDULO 1: ESCÁNER DE ALTA PRECISIÓN ---
+# --- MÓDULO 1: ESCÁNER EN TIEMPO REAL (AUTO-UPDATE) ---
 if modo == "ESCÁNER":
-    st.header("♰ REAL-TIME PRECISION SCANNER")
-    st.caption("Calculando 1,000 trayectorias por activo para estabilidad cuántica.")
+    st.header("♰ LIVE QUANTUM MONITOR")
     
-    activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
+    # Selector de refresco para que el usuario controle la velocidad
+    refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 10, 300, 30)
     
-    # Usamos un contenedor para que no se mueva la interfaz al cargar
-    with st.container():
-        if st.button("EJECUTAR ESCANEO DE ALTA PRECISIÓN"):
-            cols = st.columns(4)
-            progreso = st.progress(0)
-            
-            for i, ticker in enumerate(activos):
-                try:
-                    df, ret = get_data(ticker)
-                    last_price = float(df.iloc[-1])
-                    
-                    # --- MEJORA DE PRECISIÓN ---
-                    # Subimos a 1,000 simulaciones para estabilidad
-                    n_sims = 1000 
-                    mu = float(ret.mean())
-                    sigma = float(ret.std())
-                    
-                    # Ejecutamos Monte Carlo
-                    sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
-                    final_prices = sim_results[-1]
-                    
-                    # Probabilidad con mayor muestra
-                    prob_up = float((np.sum(final_prices > last_price) / n_sims) * 100)
-                    
-                    # --- RENDERIZADO ---
-                    with cols[i % 4]:
-                        color = "cyan" if prob_up > 52 else "red" if prob_up < 48 else "#444"
-                        st.markdown(f"""
-                            <div style="border: 1px solid {color}; padding: 12px; background: #050505; border-radius: 5px;">
-                                <p style="margin:0; font-size:11px; color:#888;">{ticker}</p>
-                                <h2 style="margin:0; color:{color}; font-size:24px;">{prob_up:.2f}%</h2>
-                                <p style="margin:0; font-size:9px; color:#555;">CONFIDENCIA ESTADÍSTICA</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                except:
-                    st.error(f"Err: {ticker}")
+    st.caption(f"Actualizando matriz cada {refresh_rate} segundos...")
+
+    # Creamos un contenedor que se refresca solo
+    @st.fragment(run_every=refresh_rate)
+    def render_live_scanner():
+        activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
+        cols = st.columns(4)
+        
+        for i, ticker in enumerate(activos):
+            try:
+                # Obtenemos los datos más recientes
+                df, ret = get_data(ticker)
+                last_price = float(df.iloc[-1])
                 
-                progreso.progress((i + 1) / len(activos))
-            
-            st.success("Escaneo completado con éxito ♰")
+                # Simulación de alta precisión
+                n_sims = 1000
+                sim_results = monte_carlo(last_price, ret.mean(), ret.std(), 7, n_sims)
+                prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
+                
+                # Renderizado de tarjeta
+                with cols[i % 4]:
+                    color = "cyan" if prob_up > 51 else "red" if prob_up < 49 else "#444"
+                    st.markdown(f"""
+                        <div style="border: 1px solid {color}; padding: 12px; background: #050505; border-radius: 5px; margin-bottom:10px;">
+                            <p style="margin:0; font-size:11px; color:#888;">{ticker} • LIVE</p>
+                            <h2 style="margin:0; color:{color}; font-size:22px;">{prob_up:.2f}%</h2>
+                            <p style="margin:0; font-size:10px; color:white;">PRÓX. 7 DÍAS</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+            except:
+                st.error(f"Error {ticker}")
+        
+        # Estampa de tiempo para saber cuándo fue la última actualización
+        st.caption(f"Última sincronización: {time.strftime('%H:%M:%S')}")
+
+    # Ejecutamos la función del fragmento
+    render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
