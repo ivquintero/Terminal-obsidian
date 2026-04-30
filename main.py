@@ -58,25 +58,46 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
     return res
 
 # --- MÓDULO 1: ESCÁNER ---
+# --- MÓDULO 1: ESCÁNER ---
 if modo == "ESCÁNER":
     st.header("♰ REAL-TIME MARKET SCANNER")
+    # Lista de activos (puedes añadir más aquí)
     activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
     
     if st.button("INICIAR ESCANEO CUÁNTICO"):
         cols = st.columns(4)
         for i, ticker in enumerate(activos):
-            df, ret = get_data(ticker)
-            prob_up = (np.sum(monte_carlo(df.iloc[-1], ret.mean(), ret.std(), 7, 50)[-1] > df.iloc[-1]) / 50) * 100
-            
-            with cols[i % 4]:
-                color = "cyan" if prob_up > 55 else "red" if prob_up < 45 else "gray"
-                st.markdown(f"""
-                    <div style="border: 1px solid {color}; padding: 10px; background: #050505; margin-bottom: 10px;">
-                        <p style="margin:0; font-size:12px; color:#666;">{ticker}</p>
-                        <h3 style="margin:0; color:{color};">{prob_up:.1f}%</h3>
-                        <p style="margin:0; font-size:10px; color:white;">PROB. ÉXITO (7D)</p>
-                    </div>
-                """, unsafe_allow_html=True)
+            try:
+                # 1. Obtención y limpieza de datos
+                df, ret = get_data(ticker)
+                
+                # Extraemos el último precio como un número flotante puro
+                # Esto evita el error "Lengths must match to compare"
+                last_price = float(df.iloc[-1])
+                
+                # 2. Ejecución de Simulación Monte Carlo
+                # Generamos 50 rutas para 7 días
+                sim_results = monte_carlo(last_price, ret.mean(), ret.std(), 7, 50)
+                
+                # Tomamos solo los precios del último día de la simulación
+                final_prices = sim_results[-1]
+                
+                # 3. Cálculo de Probabilidad (Comparación numérica)
+                prob_up = (np.sum(final_prices > last_price) / 50) * 100
+                
+                # 4. Renderizado de Tarjetas Góticas
+                with cols[i % 4]:
+                    color = "cyan" if prob_up > 55 else "red" if prob_up < 45 else "gray"
+                    st.markdown(f"""
+                        <div style="border: 1px solid {color}; padding: 10px; background: #050505; margin-bottom: 10px; border-radius: 2px;">
+                            <p style="margin:0; font-size:12px; color:#666; font-family:monospace;">{ticker}</p>
+                            <h3 style="margin:0; color:{color}; font-family:monospace;">{prob_up:.1f}%</h3>
+                            <p style="margin:0; font-size:10px; color:white; font-family:monospace;">PROB. ÉXITO (7D)</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+            except Exception as e:
+                with cols[i % 4]:
+                    st.error(f"Error en {ticker}")
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
