@@ -81,24 +81,32 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
+    st.sidebar.subheader("♰ PANEL DE CONTROL PRO")
+    
+    # --- CAMBIO AQUÍ: Ahora tú controlas la lista desde la interfaz ---
+    input_texto = st.sidebar.text_area(
+        "LISTA DE ACTIVOS (Separados por coma)", 
+        value="BTC-USD, ETH-USD, SOL-USD, NVDA, AAPL, TSLA, META, GOOGL"
+    )
+    # Convertimos el texto en una lista real
+    lista_activos = [a.strip().upper() for a in input_texto.split(",") if a.strip()]
+
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
 
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
-        activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
+        # Usamos 'lista_activos' que definimos arriba
         cols = st.columns(4)
         
         with st.spinner("Sincronizando..."):
-            for i, ticker in enumerate(activos):
+            for i, ticker in enumerate(lista_activos):
                 try:
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
                     
                     if not data.empty:
-                        # --- ESTE BLOQUE DEBE ESTAR INDENTADO (4 espacios más a la derecha) ---
                         close_col = data['Close']
                         last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
                         
-                        # Usamos la función de datos para obtener el retorno histórico (necesario para mu y sigma)
                         _, ret = get_data(ticker) 
                         mu, sigma = float(ret.mean()), float(ret.std())
                         n_sims = 1000
@@ -110,7 +118,6 @@ if modo == "ESCÁNER":
                             sim_results = monte_carlo(last_price, mu, sigma, dias, n_sims)
                             res[etiqueta] = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
 
-                        # Renderizado de la tarjeta
                         with cols[i % 4]:
                             color = "cyan" if res["7D"] > 50 else "red"
                             st.markdown(f"""
