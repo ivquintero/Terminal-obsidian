@@ -78,31 +78,57 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-
-# --- MÓDULO 1: ESCÁNER EN TIEMPO REAL ---
 # --- MÓDULO 1: ESCÁNER EN TIEMPO REAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
+    
+    # Slider de refresco
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 10)
 
+    # Definimos la función del fragmento
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
-        # 1er nivel de sangría dentro de la función
-        with st.spinner("Actualizando Matriz..."):
-            activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
-            cols = st.columns(4)
-            
-            # 2do nivel de sangría: el 'for' debe estar alineado con 'activos'
+        # Lista de activos
+        activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
+        cols = st.columns(4)
+        
+        # Este spinner indica que está trabajando en segundo plano
+        with st.spinner("Sincronizando con el mercado..."):
             for i, ticker in enumerate(activos):
                 try:
-                    # 3er nivel de sangría: dentro del 'for'
+                    # Descarga rápida
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
-                    # ... resto de tu lógica ...
                     
+                    if not data.empty:
+                        # Limpieza de datos (lo que arreglamos antes)
+                        close_col = data['Close']
+                        last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
+                        
+                        # Simulación rápida para movimiento visual
+                        n_sims = 1000
+                        mu, sigma = 0.0001, 0.02
+                        sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
+                        prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
+                        
+                        # Renderizado de la tarjeta
+                        with cols[i % 4]:
+                            color = "cyan" if prob_up > 50.5 else "red" if prob_up < 49.5 else "white"
+                            st.markdown(f"""
+                                <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 5px; margin-bottom: 10px;">
+                                    <p style="margin:0; font-size:10px; color:#555;">{ticker}</p>
+                                    <h3 style="margin:0; color:{color}; font-family:monospace;">{prob_up:.2f}%</h3>
+                                    <p style="margin:0; font-size:9px; color:#333;">LIVE UPDATE</p>
+                                </div>
+                            """, unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"Error en {ticker}")
+                    with cols[i % 4]:
+                        st.error("!") # Error minimalista para no romper el diseño
 
-    # Llamada a la función (alineada con el @st.fragment)
+        # Timestamp de actualización
+        st.caption(f"♰ Última actualización: {datetime.now().strftime('%H:%M:%S')}")
+
+    # --- ¡ESTA LÍNEA ES LA MÁS IMPORTANTE! ---
+    # Si no llamas a la función aquí, no se verá nada.
     render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
