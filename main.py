@@ -100,26 +100,61 @@ if modo == "ESCÁNER":
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
                     
                     if not data.empty:
-                        # Limpieza de datos (lo que arreglamos antes)
-                        close_col = data['Close']
-                        last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
+                    # 1. Limpieza de datos
+                    close_col = data['Close']
+                    last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
+                    
+                    mu, sigma = float(ret.mean()), float(ret.std())
+                    n_sims = 1000
+                    
+                    # 2. CÁLCULO MULTITEMPORAL
+                    # Definimos los horizontes de tiempo (en días de mercado)
+                    horizontes = {
+                        "7D": 7,
+                        "30D": 30,
+                        "6M": 126, # ~126 días de trading
+                        "1A": 252  # ~252 días de trading
+                    }
+                    
+                    resultados = {}
+                    
+                    for etiqueta, dias in horizontes.items():
+                        # Ejecutamos Monte Carlo para cada horizonte
+                        sim_results = monte_carlo(last_price, mu, sigma, dias, n_sims)
+                        final_prices = sim_results[-1]
+                        prob = (np.sum(final_prices > last_price) / n_sims) * 100
+                        resultados[etiqueta] = prob
+
+                    # 3. RENDERIZADO DE TARJETA EXPANDIDA
+                    with cols[i % 4]:
+                        # Color basado en la tendencia de corto plazo (7D)
+                        main_color = "cyan" if resultados["7D"] > 50 else "red"
                         
-                        # Simulación rápida para movimiento visual
-                        n_sims = 1000
-                        mu, sigma = 0.0001, 0.02
-                        sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
-                        prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
-                        
-                        # Renderizado de la tarjeta
-                        with cols[i % 4]:
-                            color = "cyan" if prob_up > 50.5 else "red" if prob_up < 49.5 else "white"
-                            st.markdown(f"""
-                                <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 5px; margin-bottom: 10px;">
-                                    <p style="margin:0; font-size:10px; color:#555;">{ticker}</p>
-                                    <h3 style="margin:0; color:{color}; font-family:monospace;">{prob_up:.2f}%</h3>
-                                    <p style="margin:0; font-size:9px; color:#333;">LIVE UPDATE</p>
+                        st.markdown(f"""
+                            <div style="border: 1px solid {main_color}; padding: 15px; background: #050505; border-radius: 8px; margin-bottom: 15px;">
+                                <h3 style="margin:0; color:white; font-size:16px;">{ticker}</h3>
+                                <p style="margin:0; color:{main_color}; font-size:20px; font-weight:bold;">${last_price:,.2f}</p>
+                                <hr style="border:0.5px solid #222; margin:10px 0;">
+                                <div style="display: flex; justify-content: space-between; font-family:monospace;">
+                                    <div style="text-align:center;">
+                                        <p style="margin:0; font-size:9px; color:#555;">7D</p>
+                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['7D']>50 else 'red'}">{resultados['7D']:.1f}%</p>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <p style="margin:0; font-size:9px; color:#555;">30D</p>
+                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['30D']>50 else 'red'}">{resultados['30D']:.1f}%</p>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <p style="margin:0; font-size:9px; color:#555;">6M</p>
+                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['6M']>50 else 'red'}">{resultados['6M']:.1f}%</p>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <p style="margin:0; font-size:9px; color:#555;">1A</p>
+                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['1A']>50 else 'red'}">{resultados['1A']:.1f}%</p>
+                                    </div>
                                 </div>
-                            """, unsafe_allow_html=True)
+                            </div>
+                        """, unsafe_allow_html=True)
                 except Exception as e:
                     with cols[i % 4]:
                         st.error("!") # Error minimalista para no romper el diseño
