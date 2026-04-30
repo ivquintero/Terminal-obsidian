@@ -77,46 +77,53 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-# --- MÓDULO 1: ESCÁNER ---
-# --- MÓDULO 1: ESCÁNER ---
-# --- MÓDULO 1: ESCÁNER (Versión Limpia) ---
+# --- MÓDULO 1: ESCÁNER DE ALTA PRECISIÓN ---
 if modo == "ESCÁNER":
-    st.header("♰ REAL-TIME MARKET SCANNER")
+    st.header("♰ REAL-TIME PRECISION SCANNER")
+    st.caption("Calculando 1,000 trayectorias por activo para estabilidad cuántica.")
+    
     activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
     
-    if st.button("INICIAR ESCANEO CUÁNTICO"):
-        cols = st.columns(4)
-        for i, ticker in enumerate(activos):
-            try:
-                # 1. Obtenemos datos
-                df, ret = get_data(ticker)
+    # Usamos un contenedor para que no se mueva la interfaz al cargar
+    with st.container():
+        if st.button("EJECUTAR ESCANEO DE ALTA PRECISIÓN"):
+            cols = st.columns(4)
+            progreso = st.progress(0)
+            
+            for i, ticker in enumerate(activos):
+                try:
+                    df, ret = get_data(ticker)
+                    last_price = float(df.iloc[-1])
+                    
+                    # --- MEJORA DE PRECISIÓN ---
+                    # Subimos a 1,000 simulaciones para estabilidad
+                    n_sims = 1000 
+                    mu = float(ret.mean())
+                    sigma = float(ret.std())
+                    
+                    # Ejecutamos Monte Carlo
+                    sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
+                    final_prices = sim_results[-1]
+                    
+                    # Probabilidad con mayor muestra
+                    prob_up = float((np.sum(final_prices > last_price) / n_sims) * 100)
+                    
+                    # --- RENDERIZADO ---
+                    with cols[i % 4]:
+                        color = "cyan" if prob_up > 52 else "red" if prob_up < 48 else "#444"
+                        st.markdown(f"""
+                            <div style="border: 1px solid {color}; padding: 12px; background: #050505; border-radius: 5px;">
+                                <p style="margin:0; font-size:11px; color:#888;">{ticker}</p>
+                                <h2 style="margin:0; color:{color}; font-size:24px;">{prob_up:.2f}%</h2>
+                                <p style="margin:0; font-size:9px; color:#555;">CONFIDENCIA ESTADÍSTICA</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                except:
+                    st.error(f"Err: {ticker}")
                 
-                # LIMPIEZA CRÍTICA: Extraemos el valor numérico puro
-                # Esto elimina cualquier "link" o metadata extra
-                last_price = float(df.iloc[-1])
-                
-                # 2. Simulación
-                mu = float(ret.mean())
-                sigma = float(ret.std())
-                sim_results = monte_carlo(last_price, mu, sigma, 7, 50)
-                
-                # 3. Cálculo de probabilidad
-                final_prices = sim_results[-1]
-                prob_up = float((np.sum(final_prices > last_price) / 50) * 100)
-                
-                # 4. Renderizado limpio
-                with cols[i % 4]:
-                    color = "cyan" if prob_up > 55 else "red" if prob_up < 45 else "gray"
-                    st.markdown(f"""
-                        <div style="border: 1px solid {color}; padding: 10px; background: #050505; margin-bottom: 10px;">
-                            <p style="margin:0; font-size:12px; color:#666;">{ticker}</p>
-                            <h3 style="margin:0; color:{color}; font-family:monospace;">{prob_up:.1f}%</h3>
-                            <p style="margin:0; font-size:10px; color:white;">PROB. ÉXITO (7D)</p>
-                        </div>
-                    """, unsafe_allow_html=True)
-            except Exception:
-                with cols[i % 4]:
-                    st.error(f"Error en {ticker}")
+                progreso.progress((i + 1) / len(activos))
+            
+            st.success("Escaneo completado con éxito ♰")
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
