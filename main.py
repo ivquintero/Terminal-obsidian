@@ -80,42 +80,30 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
 
 
 # --- MÓDULO 1: ESCÁNER EN TIEMPO REAL ---
+# --- MÓDULO 1: ESCÁNER EN TIEMPO REAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    
-    # Un slider para que tú controles qué tan rápido quieres que se mueva
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 10)
 
-    # El secreto: st.fragment con una variable de tiempo
     @st.fragment(run_every=refresh_rate)
-    # --- DENTRO DE TU FUNCIÓN render_live_scanner ---
-for i, ticker in enumerate(activos):
-    try:
-        # 1. Descarga con limpieza inmediata
-        data = yf.download(ticker, period="1d", interval="1m", progress=False)
-        
-        if not data.empty:
-            # 2. SEGURO ANTI-ERRORES: Seleccionamos la columna 'Close' de forma robusta
-            # Si yfinance manda múltiples niveles, .iloc[:,-1] toma el último valor real
-            close_col = data['Close']
+    def render_live_scanner():
+        # 1er nivel de sangría dentro de la función
+        with st.spinner("Actualizando Matriz..."):
+            activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
+            cols = st.columns(4)
             
-            # Si close_col sigue siendo un DataFrame (por el error de yfinance), 
-            # tomamos la última columna y luego la última fila.
-            if isinstance(close_col, pd.DataFrame):
-                last_price_raw = close_col.iloc[-1, 0]
-            else:
-                last_price_raw = close_col.iloc[-1]
-            
-            # 3. Convertimos a float puro
-            last_price = float(last_price_raw)
-            
-            # --- El resto del cálculo sigue igual ---
-            mu, sigma = 0.0001, 0.02 
-            n_sims = 1000
-            sim_results = monte_carlo(last_price, mu, sigma, 7, n_sims)
-            prob_up = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
-            
-            # ... (tu código de renderizado de tarjetas)
+            # 2do nivel de sangría: el 'for' debe estar alineado con 'activos'
+            for i, ticker in enumerate(activos):
+                try:
+                    # 3er nivel de sangría: dentro del 'for'
+                    data = yf.download(ticker, period="1d", interval="1m", progress=False)
+                    # ... resto de tu lógica ...
+                    
+                except Exception as e:
+                    st.error(f"Error en {ticker}")
+
+    # Llamada a la función (alineada con el @st.fragment)
+    render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
