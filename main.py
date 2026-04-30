@@ -83,45 +83,30 @@ if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
     st.sidebar.subheader("♰ EXPLORADOR DE ACTIVOS PRO")
     
-    # Diccionario de ayuda para que no tengas que recordar los tickers
-    biblioteca_activos = {
-        "Bitcoin (BTC)": "BTC-USD",
-        "Ethereum (ETH)": "ETH-USD",
-        "Solana (SOL)": "SOL-USD",
-        "NVIDIA (NVDA)": "NVDA",
-        "Apple (AAPL)": "AAPL",
-        "Tesla (TSLA)": "TSLA",
-        "Oro (Gold)": "GC=F",
-        "S&P 500": "^GSPC",
-        "Microsoft (MSFT)": "MSFT",
-        "Amazon (AMZN)": "AMZN",
-        "Meta (Facebook)": "META",
-        "Google (GOOGL)": "GOOGL",
-        "Netflix (NFLX)": "NFLX"
-    }
+    # 1. Esta es solo una lista de sugerencias rápidas
+    sugerencias = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "GC=F", "EURUSD=X", "MSFT"]
 
-    # El selector tipo "pestañita" con búsqueda
-    nombres_elegidos = st.sidebar.multiselect(
-        "BUSCAR Y ELEGIR PRODUCTOS:",
-        options=list(biblioteca_activos.keys()),
-        default=["Bitcoin (BTC)", "NVIDIA (NVDA)", "Oro (Gold)"]
+    # 2. El Multiselect Híbrido:
+    # 'options' son las sugerencias, pero puedes escribir cualquier cosa y darle a ENTER
+    lista_activos = st.sidebar.multiselect(
+        "BUSCAR O ESCRIBIR TICKERS (Presiona Enter para añadir):",
+        options=sugerencias,
+        default=["BTC-USD", "NVDA", "GC=F"]
     )
-
-    # Convertimos los nombres bonitos a tickers reales para yfinance
-    lista_activos = [biblioteca_activos[nombre] for nombre in nombres_elegidos]
 
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
 
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
-            st.warning("Selecciona al menos un activo en la barra lateral para comenzar el escaneo.")
+            st.warning("Selecciona activos en la barra lateral para iniciar el monitoreo.")
             return
 
         cols = st.columns(4)
         with st.spinner("Sincronizando Red..."):
             for i, ticker in enumerate(lista_activos):
                 try:
+                    # yf.download buscará CUALQUIER cosa que hayas escrito
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
                     
                     if not data.empty:
