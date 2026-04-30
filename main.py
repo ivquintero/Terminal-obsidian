@@ -46,10 +46,30 @@ with st.sidebar:
 
 # --- FUNCIONES DE CÁLCULO ---
 def get_data(ticker):
-    df = yf.download(ticker, period="1y", progress=False)['Close']
-    returns = np.log(df / df.shift(1)).dropna()
-    return df, returns
+    # Forzamos la descarga y eliminamos el multi-índice que causa el error
+    data = yf.download(ticker, period="1y", progress=False)
+    
+    if data.empty:
+        raise ValueError("No hay datos")
 
+    # Si yfinance entrega varias columnas (Close, Adj Close, etc.)
+    # nos aseguramos de tomar solo 'Close' y aplanarlo
+    if 'Close' in data.columns:
+        close_data = data['Close']
+    else:
+        close_data = data.iloc[:, 0] # Si falla, toma la primera columna disponible
+
+    # Convertimos a Serie de Pandas por si viene como DataFrame de una columna
+    if isinstance(close_data, pd.DataFrame):
+        close_data = close_data.iloc[:, 0]
+
+    # Limpieza final: eliminamos NaNs y forzamos a float64
+    df = close_data.dropna().astype(float)
+    
+    # Calculamos retornos logarítmicos
+    returns = np.log(df / df.shift(1)).dropna()
+    
+    return df, returns
 def monte_carlo(last_price, mu, sigma, days, n_sims):
     res = np.zeros((days, n_sims))
     res[0] = last_price
