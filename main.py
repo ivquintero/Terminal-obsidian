@@ -78,92 +78,55 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-# --- MÓDULO 1: ESCÁNER EN TIEMPO REAL ---
+# --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    
-    # Slider de refresco
-    refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 10)
+    refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
 
-    # Definimos la función del fragmento
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
-        # Lista de activos
         activos = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "META", "GOOGL"]
         cols = st.columns(4)
         
-        # Este spinner indica que está trabajando en segundo plano
-        with st.spinner("Sincronizando con el mercado..."):
+        with st.spinner("Sincronizando..."):
             for i, ticker in enumerate(activos):
                 try:
-                    # Descarga rápida
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
                     
                     if not data.empty:
-                    # 1. Limpieza de datos
-                    close_col = data['Close']
-                    last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
-                    
-                    mu, sigma = float(ret.mean()), float(ret.std())
-                    n_sims = 1000
-                    
-                    # 2. CÁLCULO MULTITEMPORAL
-                    # Definimos los horizontes de tiempo (en días de mercado)
-                    horizontes = {
-                        "7D": 7,
-                        "30D": 30,
-                        "6M": 126, # ~126 días de trading
-                        "1A": 252  # ~252 días de trading
-                    }
-                    
-                    resultados = {}
-                    
-                    for etiqueta, dias in horizontes.items():
-                        # Ejecutamos Monte Carlo para cada horizonte
-                        sim_results = monte_carlo(last_price, mu, sigma, dias, n_sims)
-                        final_prices = sim_results[-1]
-                        prob = (np.sum(final_prices > last_price) / n_sims) * 100
-                        resultados[etiqueta] = prob
-
-                    # 3. RENDERIZADO DE TARJETA EXPANDIDA
-                    with cols[i % 4]:
-                        # Color basado en la tendencia de corto plazo (7D)
-                        main_color = "cyan" if resultados["7D"] > 50 else "red"
+                        # --- ESTE BLOQUE DEBE ESTAR INDENTADO (4 espacios más a la derecha) ---
+                        close_col = data['Close']
+                        last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
                         
-                        st.markdown(f"""
-                            <div style="border: 1px solid {main_color}; padding: 15px; background: #050505; border-radius: 8px; margin-bottom: 15px;">
-                                <h3 style="margin:0; color:white; font-size:16px;">{ticker}</h3>
-                                <p style="margin:0; color:{main_color}; font-size:20px; font-weight:bold;">${last_price:,.2f}</p>
-                                <hr style="border:0.5px solid #222; margin:10px 0;">
-                                <div style="display: flex; justify-content: space-between; font-family:monospace;">
-                                    <div style="text-align:center;">
-                                        <p style="margin:0; font-size:9px; color:#555;">7D</p>
-                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['7D']>50 else 'red'}">{resultados['7D']:.1f}%</p>
-                                    </div>
-                                    <div style="text-align:center;">
-                                        <p style="margin:0; font-size:9px; color:#555;">30D</p>
-                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['30D']>50 else 'red'}">{resultados['30D']:.1f}%</p>
-                                    </div>
-                                    <div style="text-align:center;">
-                                        <p style="margin:0; font-size:9px; color:#555;">6M</p>
-                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['6M']>50 else 'red'}">{resultados['6M']:.1f}%</p>
-                                    </div>
-                                    <div style="text-align:center;">
-                                        <p style="margin:0; font-size:9px; color:#555;">1A</p>
-                                        <p style="margin:0; font-size:11px; color:{'cyan' if resultados['1A']>50 else 'red'}">{resultados['1A']:.1f}%</p>
+                        # Usamos la función de datos para obtener el retorno histórico (necesario para mu y sigma)
+                        _, ret = get_data(ticker) 
+                        mu, sigma = float(ret.mean()), float(ret.std())
+                        n_sims = 1000
+                        
+                        horizontes = {"7D": 7, "30D": 30, "6M": 126, "1A": 252}
+                        res = {}
+                        
+                        for etiqueta, dias in horizontes.items():
+                            sim_results = monte_carlo(last_price, mu, sigma, dias, n_sims)
+                            res[etiqueta] = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
+
+                        # Renderizado de la tarjeta
+                        with cols[i % 4]:
+                            color = "cyan" if res["7D"] > 50 else "red"
+                            st.markdown(f"""
+                                <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px;">
+                                    <p style="margin:0; font-size:12px; color:white; font-weight:bold;">{ticker}</p>
+                                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top:5px; font-family:monospace; font-size:10px;">
+                                        <div style="color:#555;">7D: <span style="color:{'cyan' if res['7D']>50 else 'red'}">{res['7D']:.1f}%</span></div>
+                                        <div style="color:#555;">30D: <span style="color:{'cyan' if res['30D']>50 else 'red'}">{res['30D']:.1f}%</span></div>
+                                        <div style="color:#555;">6M: <span style="color:{'cyan' if res['6M']>50 else 'red'}">{res['6M']:.1f}%</span></div>
+                                        <div style="color:#555;">1A: <span style="color:{'cyan' if res['1A']>50 else 'red'}">{res['1A']:.1f}%</span></div>
                                     </div>
                                 </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                except Exception as e:
-                    with cols[i % 4]:
-                        st.error("!") # Error minimalista para no romper el diseño
+                            """, unsafe_allow_html=True)
+                except Exception:
+                    continue
 
-        # Timestamp de actualización
-        st.caption(f"♰ Última actualización: {datetime.now().strftime('%H:%M:%S')}")
-
-    # --- ¡ESTA LÍNEA ES LA MÁS IMPORTANTE! ---
-    # Si no llamas a la función aquí, no se verá nada.
     render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
