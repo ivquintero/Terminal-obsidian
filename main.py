@@ -89,19 +89,17 @@ if modo == "ESCÁNER":
         st.subheader("♰ ACCESO GLOBAL YAHOO")
         
         # 1. Entrada de texto para buscar
-        query = st.text_input("BUSCAR PRODUCTO:", placeholder="Ej: Yuan, Palantir, Gold, Nintendo...")
+        query = st.text_input("BUSCAR PRODUCTO:", placeholder="Ej: Yuan, Palantir, Gold...", key="search_input")
 
         sugerencias_yahoo = {}
         
         if query:
-            # Consulta directa a la API de búsqueda de Yahoo
             url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             
             try:
                 response = requests.get(url, headers=headers)
                 data = response.json()
-                # Guardamos nombre y ticker en un diccionario para que sea fácil elegir
                 for res in data.get('quotes', []):
                     if 'symbol' in res and 'shortname' in res:
                         nombre_pantalla = f"{res['shortname']} ({res['symbol']}) - {res.get('quoteType', '')}"
@@ -109,9 +107,9 @@ if modo == "ESCÁNER":
             except:
                 st.error("Error conectando con Yahoo.")
 
-        # 2. Mostrar los resultados en un selector
+        # 2. Selector de resultados
         if sugerencias_yahoo:
-            seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=[""] + list(sugerencias_yahoo.keys()))
+            seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=[""] + list(sugerencias_yahoo.keys()), key="search_select")
             
             if seleccion != "":
                 ticker_final = sugerencias_yahoo[seleccion]
@@ -119,21 +117,24 @@ if modo == "ESCÁNER":
                 if "mis_activos" not in st.session_state:
                     st.session_state.mis_activos = ["BTC-USD"]
                 
-                if st.button(f"➕ VINCULAR {ticker_final}"):
+                # Agregamos key única al botón para evitar el error de duplicados
+                if st.button(f"➕ VINCULAR {ticker_final}", key=f"btn_add_{ticker_final}"):
                     if ticker_final not in st.session_state.mis_activos:
                         st.session_state.mis_activos.append(ticker_final)
                         st.rerun()
         elif query:
             st.warning("No se encontraron coincidencias exactas.")
 
-        if st.button("🗑️ RESET MONITOR"):
+        # Botón de reset con key única
+        if st.button("🗑️ RESET MONITOR", key="btn_reset_monitor"):
             st.session_state.mis_activos = []
             st.rerun()
 
-    # Recuperamos los activos guardados
+    # Recuperamos activos
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
 
-    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
+    # SLIDER CON KEY ÚNICA (Esto soluciona tu error principal)
+    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20, key="refresh_slider_scanner")
     
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
@@ -141,27 +142,31 @@ if modo == "ESCÁNER":
             st.info("Buscador activo. Escribe un nombre a la izquierda para empezar.")
             return
 
+        # Dibujamos las columnas
         cols = st.columns(4)
         for i, ticker in enumerate(lista_activos):
             try:
                 data = yf.download(ticker, period="1d", interval="1m", progress=False)
                 if not data.empty:
-                    # --- LÓGICA DE PRECIO Y MONTE CARLO ---
+                    # Acceso seguro al último precio
                     last_price = float(data['Close'].iloc[-1])
+                    
+                    # Probabilidades
                     _, ret = get_data(ticker) 
                     mu, sigma = float(ret.mean()), float(ret.std())
-                    
-                    # Simulación rápida (500 iteraciones para no trabar el buscador)
                     sims = monte_carlo(last_price, mu, sigma, 7, 500)
                     prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
 
                     with cols[i % 4]:
                         color = "cyan" if prob_up > 50 else "red"
+                        # Ajuste de decimales para tickers tipo Forex/Yuan
+                        formato = ",.4f" if any(x in ticker for x in ["=X", "USD"]) else ",.2f"
+                        
                         st.markdown(f"""
-                            <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px;">
-                                <p style="margin:0; font-size:9px; color:#555;">{ticker}</p>
-                                <h4 style="margin:0; color:white; font-size:14px;">${last_price:,.2f}</h4>
-                                <p style="margin:0; font-size:10px; color:{color};">Prob 7D: {prob_up:.0f}%</p>
+                            <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px; height: 100px;">
+                                <p style="margin:0; font-size:9px; color:#666; font-weight:bold;">{ticker}</p>
+                                <h4 style="margin:0; color:white; font-size:14px;">${last_price:{formato}}</h4>
+                                <p style="margin:5px 0 0 0; font-size:10px; color:{color}; font-family:monospace;">PROB 7D: {prob_up:.0f}%</p>
                             </div>
                         """, unsafe_allow_html=True)
             except:
