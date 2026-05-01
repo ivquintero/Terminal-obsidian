@@ -137,39 +137,55 @@ if modo == "ESCÁNER":
     refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20, key="refresh_slider_scanner")
     
     @st.fragment(run_every=refresh_rate)
+    @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
             st.info("Buscador activo. Escribe un nombre a la izquierda para empezar.")
             return
 
-        # Dibujamos las columnas
         cols = st.columns(4)
         for i, ticker in enumerate(lista_activos):
             try:
-                data = yf.download(ticker, period="1d", interval="1m", progress=False)
+                # 1. Intentamos descargar con un periodo más amplio por si el de 1m falla
+                data = yf.download(ticker, period="2d", interval="1m", progress=False)
+                
+                if data.empty:
+                    # Si falla el de 1m, intentamos con el de 1h que es más estable para tickers raros
+                    data = yf.download(ticker, period="5d", interval="60m", progress=False)
+
                 if not data.empty:
-                    # Acceso seguro al último precio
-                    last_price = float(data['Close'].iloc[-1])
+                    # 2. Limpieza radical del precio (aseguramos que sea un float plano)
+                    last_price_raw = data['Close'].iloc[-1]
+                    last_price = float(last_price_raw.iloc[0]) if hasattr(last_price_raw, 'iloc') else float(last_price_raw)
                     
-                    # Probabilidades
+                    # 3. Motor de Probabilidades
                     _, ret = get_data(ticker) 
                     mu, sigma = float(ret.mean()), float(ret.std())
                     sims = monte_carlo(last_price, mu, sigma, 7, 500)
                     prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
 
+                    # 4. Renderizado de la Tarjeta
                     with cols[i % 4]:
                         color = "cyan" if prob_up > 50 else "red"
-                        # Ajuste de decimales para tickers tipo Forex/Yuan
-                        formato = ",.4f" if any(x in ticker for x in ["=X", "USD"]) else ",.2f"
+                        # Si el precio es muy bajo (como el Yuan), usamos 4 decimales
+                        dec = 4 if last_price < 5 else 2
                         
                         st.markdown(f"""
-                            <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px; height: 100px;">
-                                <p style="margin:0; font-size:9px; color:#666; font-weight:bold;">{ticker}</p>
-                                <h4 style="margin:0; color:white; font-size:14px;">${last_price:{formato}}</h4>
-                                <p style="margin:5px 0 0 0; font-size:10px; color:{color}; font-family:monospace;">PROB 7D: {prob_up:.0f}%</p>
+                            <div style="border: 1px solid {color}; padding: 15px; background: #000; border-radius: 10px; margin-bottom: 15px; min-height: 110px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5);">
+                                <p style="margin:0; font-size:10px; color:#666; font-weight:bold; text-transform:uppercase;">{ticker}</p>
+                                <h3 style="margin:5px 0; color:white; font-size:20px; font-family:monospace;">${last_price:,.{dec}f}</h3>
+                                <div style="display:flex; align-items:center; gap:5px;">
+                                    <div style="width:8px; height:8px; border-radius:50%; background:{color};"></div>
+                                    <p style="margin:0; font-size:11px; color:{color}; font-weight:bold;">PROB 7D: {prob_up:.0f}%</p>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
-            except:
+                else:
+                    with cols[i % 4]:
+                        st.error(f"Sin datos: {ticker}")
+            except Exception as e:
+                with cols[i % 4]:
+                    st.warning(f"Error en {ticker}")
                 continue
 
     render_live_scanner()
