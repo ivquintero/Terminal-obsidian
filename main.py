@@ -81,17 +81,27 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    st.sidebar.subheader("♰ EXPLORADOR DE ACTIVOS PRO")
+    st.sidebar.subheader("♰ BUSCADOR DE ACTIVOS")
     
-    # 1. Esta es solo una lista de sugerencias rápidas
-    sugerencias = ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL", "TSLA", "GC=F", "EURUSD=X", "MSFT"]
+    # 1. Creamos una base de datos de sugerencias mucho más amplia
+    # Puedes seguir añadiendo aquí todos los que quieras
+    sugerencias = [
+        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "ADA-USD", "DOGE-USD", # Criptos
+        "NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "META", "GOOGL", "NFLX",  # Tech USA
+        "AMD", "INTC", "PYPL", "BABA", "COIN", "MSTR",                    # Más Acciones
+        "GC=F", "SI=F", "CL=F", "NG=F",                                   # Oro, Plata, Petróleo
+        "^GSPC", "^IXIC", "^DJI",                                         # Índices
+        "EURUSD=X", "USDMXN=X", "GBPUSD=X"                                # Divisas
+    ]
 
-    # 2. El Multiselect Híbrido:
-    # 'options' son las sugerencias, pero puedes escribir cualquier cosa y darle a ENTER
+    # 2. Selector con búsqueda inteligente
+    # Al escribir, Streamlit filtrará las 'sugerencias', pero si escribes algo
+    # nuevo y das ENTER, lo aceptará como un ticker válido.
     lista_activos = st.sidebar.multiselect(
-        "BUSCAR O ESCRIBIR TICKERS (Presiona Enter para añadir):",
+        "ESCRIBE O BUSCA PRODUCTOS:",
         options=sugerencias,
-        default=["BTC-USD", "NVDA", "GC=F"]
+        default=["BTC-USD", "NVDA", "GC=F"],
+        help="Escribe el ticker (ej: TSLA) y presiona ENTER si no está en la lista."
     )
 
     refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
@@ -99,45 +109,48 @@ if modo == "ESCÁNER":
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
-            st.warning("Selecciona activos en la barra lateral para iniciar el monitoreo.")
+            st.warning("⚠️ La matriz está vacía. Añade activos en la barra lateral.")
             return
 
         cols = st.columns(4)
-        with st.spinner("Sincronizando Red..."):
+        with st.spinner("Sincronizando con la Red..."):
             for i, ticker in enumerate(lista_activos):
                 try:
-                    # yf.download buscará CUALQUIER cosa que hayas escrito
                     data = yf.download(ticker, period="1d", interval="1m", progress=False)
                     
                     if not data.empty:
+                        # --- LÓGICA DE CÁLCULO ---
                         close_col = data['Close']
                         last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
                         
+                        # Obtenemos datos históricos para el modelo
                         _, ret = get_data(ticker) 
                         mu, sigma = float(ret.mean()), float(ret.std())
-                        n_sims = 1000
                         
+                        # Horizontes y Proyecciones
                         horizontes = {"7D": 7, "30D": 30, "6M": 126, "1A": 252}
                         res = {}
-                        
                         for etiqueta, dias in horizontes.items():
-                            sim_results = monte_carlo(last_price, mu, sigma, dias, n_sims)
-                            res[etiqueta] = float((np.sum(sim_results[-1] > last_price) / n_sims) * 100)
+                            sim_results = monte_carlo(last_price, mu, sigma, dias, 1000)
+                            res[etiqueta] = float((np.sum(sim_results[-1] > last_price) / 1000) * 100)
 
+                        # Tarjeta Visual
                         with cols[i % 4]:
                             color = "cyan" if res["7D"] > 50 else "red"
                             st.markdown(f"""
                                 <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px;">
-                                    <p style="margin:0; font-size:12px; color:white; font-weight:bold;">{ticker}</p>
-                                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top:5px; font-family:monospace; font-size:10px;">
-                                        <div style="color:#555;">7D: <span style="color:{'cyan' if res['7D']>50 else 'red'}">{res['7D']:.1f}%</span></div>
-                                        <div style="color:#555;">30D: <span style="color:{'cyan' if res['30D']>50 else 'red'}">{res['30D']:.1f}%</span></div>
-                                        <div style="color:#555;">6M: <span style="color:{'cyan' if res['6M']>50 else 'red'}">{res['6M']:.1f}%</span></div>
-                                        <div style="color:#555;">1A: <span style="color:{'cyan' if res['1A']>50 else 'red'}">{res['1A']:.1f}%</span></div>
+                                    <p style="margin:0; font-size:11px; color:#666; font-weight:bold;">{ticker}</p>
+                                    <h4 style="margin:0; color:white; font-size:14px;">${last_price:,.2f}</h4>
+                                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top:8px; font-family:monospace; font-size:9px;">
+                                        <div style="color:#444;">7D: <span style="color:{'cyan' if res['7D']>50 else 'red'}">{res['7D']:.0f}%</span></div>
+                                        <div style="color:#444;">30D: <span style="color:{'cyan' if res['30D']>50 else 'red'}">{res['30D']:.0f}%</span></div>
+                                        <div style="color:#444;">6M: <span style="color:{'cyan' if res['6M']>50 else 'red'}">{res['6M']:.0f}%</span></div>
+                                        <div style="color:#444;">1A: <span style="color:{'cyan' if res['1A']>50 else 'red'}">{res['1A']:.0f}%</span></div>
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
                 except:
+                    # Si el ticker no existe o hay error, simplemente se salta para no romper la app
                     continue
 
     render_live_scanner()
