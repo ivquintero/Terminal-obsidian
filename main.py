@@ -79,42 +79,80 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
     return res
 
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
-# --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    st.sidebar.subheader("♰ BUSCADOR INTELIGENTE")
     
-    # 1. Expandimos la base de datos con nombres comunes para que el buscador los encuentre
-    # Formato: "Nombre Común (TICKER)"
-    db_busqueda = [
-        "Palantir (PLTR)", "Bitcoin (BTC-USD)", "Ethereum (ETH-USD)", 
-        "NVIDIA (NVDA)", "Apple (AAPL)", "Tesla (TSLA)", "Microsoft (MSFT)",
-        "Amazon (AMZN)", "Meta (META)", "Google (GOOGL)", "Netflix (NFLX)",
-        "MicroStrategy (MSTR)", "Coinbase (COIN)", "AMD (AMD)", "Intel (INTC)",
-        "Oro (GC=F)", "Plata (SI=F)", "Petróleo (CL=F)", "S&P 500 (^GSPC)"
-    ]
-
-    # 2. El Multiselect ahora es tu buscador
-    eleccion_usuario = st.sidebar.multiselect(
-        "BUSCA POR NOMBRE O ESCRIBE TICKER:",
-        options=db_busqueda,
-        default=["Bitcoin (BTC-USD)", "Palantir (PLTR)"],
-        help="Si no ves el activo, escribe su TICKER (ej: PLTR) y dale a ENTER"
-    )
-
-    # 3. Limpiamos la elección para quedarnos solo con el Ticker entre paréntesis
-    # Esta línea es la "magia" que extrae el código para Yahoo Finance
-    lista_activos = []
-    for item in eleccion_usuario:
-        if "(" in item and ")" in item:
-            ticker = item.split("(")[1].split(")")[0]
-            lista_activos.append(ticker)
-        else:
-            lista_activos.append(item.upper()) # Por si escribes el ticker directo
+    with st.sidebar:
+        st.subheader("♰ TERMINAL DE ACCESO GLOBAL")
+        # Aquí escribes CUALQUIER Ticker de Yahoo Finance
+        raw_input = st.text_input(
+            "BUSCADOR DE RED (Ticker):", 
+            value="BTC-USD, PLTR, CNYUSD=X",
+            help="Escribe los tickers oficiales de Yahoo Finance separados por comas."
+        )
+        
+        # Procesamos la entrada para que sea una lista limpia
+        lista_activos = [t.strip().upper() for t in raw_input.split(",") if t.strip()]
+        
+        st.info("💡 Consejo: Para divisas usa '=X' (ej: CNYUSD=X). Para acciones el código (ej: PLTR).")
 
     refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
     
-    # ... (Aquí sigue tu función render_live_scanner() igual que antes)
+    @st.fragment(run_every=refresh_rate)
+    def render_live_scanner():
+        if not lista_activos:
+            st.warning("Introduce un ticker válido para iniciar el escaneo.")
+            return
+
+        cols = st.columns(4)
+        with st.spinner("Conectando con Yahoo Finance API..."):
+            for i, ticker in enumerate(lista_activos):
+                try:
+                    # Intento de descarga directa de la base de datos de Yahoo
+                    data = yf.download(ticker, period="2d", interval="1m", progress=False)
+                    
+                    if data.empty:
+                        # Si no encuentra nada, nos avisa en la tarjeta
+                        with cols[i % 4]:
+                            st.error(f"Ticker '{ticker}' no hallado.")
+                        continue
+
+                    # --- PROCESAMIENTO DE DATOS ---
+                    # Manejo de precios para activos con muchos o pocos decimales
+                    close_price = data['Close'].iloc[-1]
+                    # Si el precio es un objeto (Series), extraemos el valor numérico
+                    last_price = float(close_price.iloc[0]) if hasattr(close_price, 'iloc') else float(close_price)
+                    
+                    # Motor de Probabilidad (Monte Carlo)
+                    _, ret = get_data(ticker) 
+                    mu, sigma = float(ret.mean()), float(ret.std())
+                    
+                    # Calculamos solo 7D y 30D para velocidad
+                    res = {}
+                    for etiqueta, dias in {"7D": 7, "30D": 30}.items():
+                        sims = monte_carlo(last_price, mu, sigma, dias, 500)
+                        res[etiqueta] = float((np.sum(sims[-1] > last_price) / 500) * 100)
+
+                    # --- TARJETA VISUAL ---
+                    with cols[i % 4]:
+                        # Color dinámico basado en probabilidad
+                        accent = "cyan" if res["7D"] > 50 else "red"
+                        # Ajuste de decimales para Forex (Yuan) vs Acciones
+                        dec = 4 if last_price < 5 else 2
+                        
+                        st.markdown(f"""
+                            <div style="border-left: 3px solid {accent}; padding: 12px; background: #0a0a0a; border-radius: 4px; margin-bottom: 10px;">
+                                <p style="margin:0; font-size:10px; color:#444; letter-spacing:1px;">{ticker}</p>
+                                <h3 style="margin:0; color:white; font-size:18px;">${last_price:,.{dec}f}</h3>
+                                <div style="margin-top:8px; font-family:monospace; font-size:10px;">
+                                    <span style="color:#555;">PROB UP 7D:</span> <span style="color:{accent}">{res['7D']:.0f}%</span>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                except Exception as e:
+                    continue
+
+    render_live_scanner()
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
     col1, col2 = st.columns([1, 3])
