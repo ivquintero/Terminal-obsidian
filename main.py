@@ -151,37 +151,63 @@ if modo == "ESCÁNER":
     # Ejecutar la función (debe estar al mismo nivel de indentación que la definición)
     render_live_scanner()
 
-# --- MÓDULO 2: TERMINAL INDIVIDUAL (VERSIÓN DEFINITIVA) ---
+# --- MÓDULO 2: TERMINAL INDIVIDUAL (CON BUSCADOR PREDICTIVO) ---
 elif modo == "TERMINAL INDIVIDUAL":
     st.header("♰ TRADING TERMINAL")
+    
     with st.sidebar:
-        t_input = st.text_input("TICKER DIRECTO", "PLTR").upper()
+        st.subheader("♰ BUSCADOR INTELIGENTE")
+        # Paso 1: El usuario escribe el nombre (Ej: Palantir, Apple, Gold)
+        query_term = st.text_input("BUSCAR POR NOMBRE:", placeholder="Ej: Palantir...", key="term_search")
+        
+        # Ticker por defecto si no hay búsqueda
+        ticker_final = "PLTR" 
+        
+        if query_term:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            try:
+                res = requests.get(url, headers=headers).json()
+                # Filtramos y creamos un diccionario de {Nombre Legible: Ticker}
+                search_options = {
+                    f"{q.get('shortname', 'N/A')} ({q['symbol']}) - {q.get('exchDisp', '')}": q['symbol'] 
+                    for q in res.get('quotes', []) if 'symbol' in q
+                }
+                
+                if search_options:
+                    # El usuario elige el activo de la lista desplegable
+                    seleccion = st.selectbox("SELECCIONA EL ACTIVO:", options=list(search_options.keys()))
+                    ticker_final = search_options[seleccion]
+                    st.success(f"TICKER CARGADO: {ticker_final}")
+                else:
+                    st.warning("No se encontraron resultados.")
+            except:
+                st.error("Error al conectar con el servidor de búsqueda.")
+        
+        st.markdown("---")
         dias_sim = st.slider("PROYECCIÓN (DÍAS)", 5, 365, 30)
 
+    # --- LÓGICA DE CARGA Y RENDERIZADO ---
     try:
-        # Descarga con historial suficiente para el gráfico y los cálculos
-        data_hist = yf.download(t_input, period="1mo", interval="60m", progress=False)
+        # Descargamos datos usando el ticker validado por la búsqueda
+        data_hist = yf.download(ticker_final, period="1mo", interval="60m", progress=False)
         
-        if data_hist is not None and len(data_hist) > 0:
-            # --- LIMPIEZA UNIVERSAL DE COLUMNAS ---
-            # Si Yahoo devuelve MultiIndex (ej. ('Close', 'PLTR')), lo aplanamos
+        if not data_hist.empty:
+            # Aplanamos MultiIndex por si Yahoo envía columnas dobles
             if isinstance(data_hist.columns, pd.MultiIndex):
                 data_hist.columns = data_hist.columns.get_level_values(0)
             
-            # 1. Precio Actual (Seguro)
+            # Limpieza de precio y estadísticas
             last_price = float(data_hist['Close'].dropna().iloc[-1])
-            
-            # 2. Estadísticas para Monte Carlo
-            df_full, ret = get_data(t_input)
-            mu = float(ret.mean())
-            sigma = float(ret.std())
+            df_full, ret = get_data(ticker_final)
+            mu, sigma = float(ret.mean()), float(ret.std())
 
-            # Dashboard de cabecera
+            # Dashboard de métricas
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("LAST PRICE", f"${last_price:,.2f}")
-            c2.metric("VOLATILITY (ANN)", f"{sigma*np.sqrt(252):.1%}")
-            c3.metric("MONTH HIGH", f"${float(data_hist['High'].max()):,.2f}")
-            c4.metric("MONTH LOW", f"${float(data_hist['Low'].min()):,.2f}")
+            c1.metric("ACTIVO", ticker_final)
+            c2.metric("PRECIO ACTUAL", f"${last_price:,.2f}")
+            c3.metric("VOLATILIDAD", f"{sigma*np.sqrt(252):.1%}")
+            c4.metric("MAX 30D", f"${float(data_hist['High'].max()):,.2f}")
 
             st.markdown("---")
             col_left, col_right = st.columns([3, 1])
@@ -190,41 +216,35 @@ elif modo == "TERMINAL INDIVIDUAL":
                 # Gráfico de Velas Japonesas
                 fig = go.Figure(data=[go.Candlestick(
                     x=data_hist.index,
-                    open=data_hist['Open'],
-                    high=data_hist['High'],
-                    low=data_hist['Low'],
-                    close=data_hist['Close'],
-                    increasing_line_color='#00ffff', 
-                    decreasing_line_color='#ff4b4b'
+                    open=data_hist['Open'], high=data_hist['High'],
+                    low=data_hist['Low'], close=data_hist['Close'],
+                    increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
                 )])
                 fig.update_layout(
-                    template="plotly_dark", 
-                    height=500, 
-                    margin=dict(l=0,r=0,t=0,b=0),
+                    template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0),
                     xaxis_rangeslider_visible=False,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)'
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
             with col_right:
                 st.subheader("♰ ORDER BOOK")
-                # Simulación de Libro de Órdenes
-                bids_price = [last_price * (1 - i/1000) for i in range(5)]
-                asks_price = [last_price * (1 + i/1000) for i in range(5)]
+                # Simulación estética de Libro de Órdenes
+                bids_p = [last_price * (1 - i/1000) for i in range(5)]
+                asks_p = [last_price * (1 + i/1000) for i in range(5)]
                 
                 st.caption("SELL ORDERS")
-                st.dataframe(pd.DataFrame({'Price': asks_price, 'Size': np.random.uniform(1, 10, 5)}).sort_values('Price', ascending=False), hide_index=True)
+                st.dataframe(pd.DataFrame({'Price': asks_p, 'Size': np.random.uniform(1, 10, 5)}).sort_values('Price', ascending=False), hide_index=True)
                 
                 st.caption("BUY ORDERS")
-                st.dataframe(pd.DataFrame({'Price': bids_price, 'Size': np.random.uniform(1, 10, 5)}), hide_index=True)
+                st.dataframe(pd.DataFrame({'Price': bids_p, 'Size': np.random.uniform(1, 10, 5)}), hide_index=True)
                 
-                # Sentimiento basado en Monte Carlo rápido
+                # Análisis de Sentimiento
                 prob_up = (np.sum(monte_carlo(last_price, mu, sigma, 30, 200)[-1] > last_price) / 200)
                 st.warning(f"SENTIMIENTO: {'BULLISH' if prob_up > 0.5 else 'BEARISH'} ({prob_up:.1%})")
         else:
-            st.error(f"No se encontraron datos para '{t_input}'. Verifica el ticker en Yahoo Finance.")
-            
+            st.info("Escribe el nombre de un activo en la barra lateral para comenzar.")
+
     except Exception as e:
         st.error(f"Error técnico en terminal: {e}")
 # --- MÓDULO 3: COMPARADOR (TUYO) ---
