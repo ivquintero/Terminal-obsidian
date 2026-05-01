@@ -117,7 +117,6 @@ if modo == "ESCÁNER":
                 if "mis_activos" not in st.session_state:
                     st.session_state.mis_activos = ["BTC-USD"]
                 
-                # Agregamos key única al botón para evitar el error de duplicados
                 if st.button(f"➕ VINCULAR {ticker_final}", key=f"btn_add_{ticker_final}"):
                     if ticker_final not in st.session_state.mis_activos:
                         st.session_state.mis_activos.append(ticker_final)
@@ -125,18 +124,17 @@ if modo == "ESCÁNER":
         elif query:
             st.warning("No se encontraron coincidencias exactas.")
 
-        # Botón de reset con key única
         if st.button("🗑️ RESET MONITOR", key="btn_reset_monitor"):
             st.session_state.mis_activos = []
             st.rerun()
 
-    # Recuperamos activos
+    # Recuperamos activos guardados en la sesión
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
 
-    # SLIDER CON KEY ÚNICA (Esto soluciona tu error principal)
+    # Slider de refresco con key única
     refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20, key="refresh_slider_scanner")
     
-    @st.fragment(run_every=refresh_rate)
+    # --- RENDERIZADO DEL MONITOR ---
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
@@ -146,28 +144,25 @@ if modo == "ESCÁNER":
         cols = st.columns(4)
         for i, ticker in enumerate(lista_activos):
             try:
-                # 1. Intentamos descargar con un periodo más amplio por si el de 1m falla
+                # Intento de descarga robusta
                 data = yf.download(ticker, period="2d", interval="1m", progress=False)
-                
                 if data.empty:
-                    # Si falla el de 1m, intentamos con el de 1h que es más estable para tickers raros
                     data = yf.download(ticker, period="5d", interval="60m", progress=False)
 
                 if not data.empty:
-                    # 2. Limpieza radical del precio (aseguramos que sea un float plano)
+                    # Limpieza de precio
                     last_price_raw = data['Close'].iloc[-1]
                     last_price = float(last_price_raw.iloc[0]) if hasattr(last_price_raw, 'iloc') else float(last_price_raw)
                     
-                    # 3. Motor de Probabilidades
+                    # Cálculo de Probabilidades
                     _, ret = get_data(ticker) 
                     mu, sigma = float(ret.mean()), float(ret.std())
                     sims = monte_carlo(last_price, mu, sigma, 7, 500)
                     prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
 
-                    # 4. Renderizado de la Tarjeta
+                    # Tarjeta Visual
                     with cols[i % 4]:
                         color = "cyan" if prob_up > 50 else "red"
-                        # Si el precio es muy bajo (como el Yuan), usamos 4 decimales
                         dec = 4 if last_price < 5 else 2
                         
                         st.markdown(f"""
@@ -183,35 +178,6 @@ if modo == "ESCÁNER":
                 else:
                     with cols[i % 4]:
                         st.error(f"Sin datos: {ticker}")
-            except Exception as e:
-                with cols[i % 4]:
-                    st.warning(f"Error en {ticker}")
-                continue
-
-    render_live_scanner()
-
-    # Los activos que el monitor va a pintar
-    lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
-
-    # --- RENDERIZADO DEL MONITOR ---
-    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
-    
-    @st.fragment(run_every=refresh_rate)
-    def render_live_scanner():
-        if not lista_activos:
-            st.info("Buscador listo. Accede a cualquier producto de Yahoo Finance.")
-            return
-
-        cols = st.columns(4)
-        for i, ticker in enumerate(lista_activos):
-            try:
-                # Aquí descargamos los datos del ticker que Yahoo nos dio
-                data = yf.download(ticker, period="1d", interval="1m", progress=False)
-                if not data.empty:
-                    # (Tu código de Monte Carlo y tarjetas aquí...)
-                    with cols[i % 4]:
-                        st.write(f"**{ticker}**") 
-                        # ... resto de la lógica ...
             except:
                 continue
 
