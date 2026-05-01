@@ -79,84 +79,77 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-# --- MÓDULO 1: ESCÁNER ---
+# --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
     
     with st.sidebar:
-        st.subheader("♰ BUSCADOR YAHOO")
+        st.subheader("♰ ACCESO GLOBAL YAHOO")
         query = st.text_input("BUSCAR PRODUCTO:", placeholder="Ej: Yuan, Palantir...", key="search_input")
+
         if query:
             url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
-            data_s = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}).json()
-            for res in data_s.get('quotes', [])[:3]:
-                if st.button(f"➕ VINCULAR {res['symbol']}", key=f"add_{res['symbol']}"):
-                    if "mis_activos" not in st.session_state: st.session_state.mis_activos = ["BTC-USD"]
-                    if res['symbol'] not in st.session_state.mis_activos:
-                        st.session_state.mis_activos.append(res['symbol'])
-                        st.rerun()
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            try:
+                response = requests.get(url, headers=headers)
+                search_data = response.json()
+                for res in search_data.get('quotes', [])[:5]:
+                    if st.button(f"➕ VINCULAR {res['symbol']}", key=f"btn_{res['symbol']}"):
+                        if "mis_activos" not in st.session_state:
+                            st.session_state.mis_activos = ["BTC-USD"]
+                        if res['symbol'] not in st.session_state.mis_activos:
+                            st.session_state.mis_activos.append(res['symbol'])
+                            st.rerun()
+            except:
+                st.error("Error de conexión")
 
+    # Lista de activos y ratio de refresco
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
-    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
-    
-   @st.fragment(run_every=refresh_rate)
-def render_live_scanner():
-    if not lista_activos:
-        st.info("Buscador activo. Escribe un nombre a la izquierda para empezar.")
-        return
+    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20, key="slider_scanner")
 
-    cols = st.columns(4)
-    for i, ticker in enumerate(lista_activos):
-        try:
-            # 1. Descarga de datos
-            data = yf.download(ticker, period="2d", interval="1m", progress=False)
-            if data.empty:
-                data = yf.download(ticker, period="5d", interval="60m", progress=False)
+    # --- FUNCIÓN CON SANGRE CORREGIDA ---
+    @st.fragment(run_every=refresh_rate)
+    def render_live_scanner():
+        if not lista_activos:
+            st.info("Buscador activo. Escribe un nombre a la izquierda.")
+            return
 
-            if not data.empty:
-                # --- FIX CRÍTICO AQUÍ ---
-                # Extraemos la columna 'Close' y nos aseguramos de que sea una Serie plana
-                close_col = data['Close']
-                if isinstance(close_col, pd.DataFrame):
-                    close_col = close_col.iloc[:, 0]
-                
-                # Obtenemos el último valor y forzamos la conversión a escalar
-                last_val = close_col.iloc[-1]
-                last_price = float(last_val.iloc[0]) if hasattr(last_val, 'iloc') else float(last_val)
-                # ------------------------
-                
-                # Cálculo de Probabilidades (blindamos mu y sigma también)
-                _, ret = get_data(ticker) 
-                mu = float(ret.mean().iloc[0]) if hasattr(ret.mean(), 'iloc') else float(ret.mean())
-                sigma = float(ret.std().iloc[0]) if hasattr(ret.std(), 'iloc') else float(ret.std())
-                
-                sims = monte_carlo(last_price, mu, sigma, 7, 500)
-                prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
-
-                # Tarjeta Visual (Look Profesional)
-                with cols[i % 4]:
-                    color = "#00ffff" if prob_up > 50 else "#ff4b4b" # Cyan vs Rojo Neón
-                    dec = 4 if last_price < 5 else 2
+        cols = st.columns(4)
+        for i, ticker in enumerate(lista_activos):
+            try:
+                # Descarga y limpieza
+                data = yf.download(ticker, period="2d", interval="1m", progress=False)
+                if not data.empty:
+                    # Fix para el error de 'Series'
+                    close_col = data['Close']
+                    if isinstance(close_col, pd.DataFrame):
+                        close_col = close_col.iloc[:, 0]
                     
-                    st.markdown(f"""
-                        <div style="border: 1px solid {color}55; padding: 15px; background: #0a0a0c; border-radius: 4px; margin-bottom: 15px; min-height: 110px;">
-                            <p style="margin:0; font-size:10px; color:#666; font-weight:bold; letter-spacing:1px;">{ticker}</p>
-                            <h3 style="margin:5px 0; color:white; font-size:22px; font-family:monospace;">${last_price:,.{dec}f}</h3>
-                            <div style="display:flex; align-items:center; gap:5px; border-top: 1px solid #1e1e26; padding-top:8px; margin-top:8px;">
-                                <div style="width:6px; height:6px; border-radius:50%; background:{color}; box-shadow: 0 0 5px {color};"></div>
-                                <p style="margin:0; font-size:11px; color:{color}; font-weight:bold;">PROB 7D: {prob_up:.0f}%</p>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
-            else:
-                with cols[i % 4]:
-                    st.error(f"Sin datos: {ticker}")
-        except Exception as e:
-            # Opcional: imprimir error en consola para debug
-            # print(f"Error en {ticker}: {e}")
-            continue
+                    last_val = close_col.iloc[-1]
+                    last_price = float(last_val.iloc[0]) if hasattr(last_val, 'iloc') else float(last_val)
+                    
+                    # Probabilidades
+                    _, ret = get_data(ticker)
+                    mu, sigma = float(ret.mean()), float(ret.std())
+                    sims = monte_carlo(last_price, mu, sigma, 7, 100)
+                    prob_up = (np.sum(sims[-1] > last_price) / 100) * 100
+                    
+                    color = "cyan" if prob_up > 50 else "red"
+                    dec = 4 if last_price < 5 else 2
 
-render_live_scanner()
+                    with cols[i % 4]:
+                        st.markdown(f"""
+                            <div style="border: 1px solid {color}; padding: 15px; background: #000; border-radius: 5px; margin-bottom: 10px;">
+                                <p style="margin:0; font-size:10px; color:#666;">{ticker}</p>
+                                <h3 style="margin:5px 0; color:white; font-size:20px;">${last_price:,.{dec}f}</h3>
+                                <p style="margin:0; font-size:11px; color:{color};">PROB 7D: {prob_up:.0f}%</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+            except:
+                continue
+
+    # Ejecutar la función (debe estar al mismo nivel de indentación que la definición)
+    render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL (RE-DISEÑADO) ---
 elif modo == "TERMINAL INDIVIDUAL":
