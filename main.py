@@ -161,40 +161,66 @@ elif modo == "TERMINAL INDIVIDUAL":
     try:
         # Descarga de datos
         data_hist = yf.download(t_input, period="1mo", interval="60m", progress=False)
-        df_full, ret = get_data(t_input)
-        last_price = float(data_hist['Close'].iloc[-1])
         
-        # Dashboard de cabecera
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("PRECIO ACTUAL", f"${last_price:,.2f}")
-        c2.metric("VOLATILIDAD", f"{ret.std()*np.sqrt(252):.1%}")
-        c3.metric("MAX 30D", f"${data_hist['High'].max():,.2f}")
-        c4.metric("MIN 30D", f"${data_hist['Low'].min():,.2f}")
+        if not data_hist.empty:
+            # --- FIX CRÍTICO: FORZAR ESCALARES ---
+            # 1. Limpieza de precio actual
+            last_val_raw = data_hist['Close'].iloc[-1]
+            last_price = float(last_val_raw.iloc[0]) if hasattr(last_val_raw, 'iloc') else float(last_val_raw)
+            
+            # 2. Limpieza de retornos y estadísticas
+            df_full, ret = get_data(t_input)
+            
+            # Forzamos mu y sigma a ser floats puros
+            mu_raw = ret.mean()
+            mu = float(mu_raw.iloc[0]) if hasattr(mu_raw, 'iloc') else float(mu_raw)
+            
+            sigma_raw = ret.std()
+            sigma = float(sigma_raw.iloc[0]) if hasattr(sigma_raw, 'iloc') else float(sigma_raw)
+            # -------------------------------------
 
-        col_left, col_right = st.columns([3, 1])
-        
-        with col_left:
-            # Gráfico de Velas Japonesas
-            fig = go.Figure(data=[go.Candlestick(
-                x=data_hist.index, open=data_hist['Open'], high=data_hist['High'],
-                low=data_hist['Low'], close=data_hist['Close'],
-                increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
-            )])
-            fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
+            # Dashboard de cabecera estilo Exchange
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("PRECIO ACTUAL", f"${last_price:,.2f}")
+            c2.metric("VOLATILIDAD ANUAL", f"{sigma*np.sqrt(252):.1%}")
+            
+            # Limpieza para Max/Min
+            high_30 = data_hist['High'].max()
+            low_30 = data_hist['Low'].min()
+            c3.metric("MAX 30D", f"${float(high_30.iloc[0]) if hasattr(high_30, 'iloc') else float(high_30):,.2f}")
+            c4.metric("MIN 30D", f"${float(low_30.iloc[0]) if hasattr(low_30, 'iloc') else float(low_30):,.2f}")
 
-        with col_right:
-            st.subheader("♰ ORDER BOOK")
-            # Simulación estética de Libro de Órdenes
-            bids = pd.DataFrame({'Price': [last_price * (1-i/1000) for i in range(5)], 'Size': np.random.uniform(1, 10, 5)})
-            st.caption("SELL ORDERS")
-            st.dataframe(bids.assign(Price=bids['Price']*1.002), hide_index=True)
-            st.caption("BUY ORDERS")
-            st.dataframe(bids, hide_index=True)
+            col_left, col_right = st.columns([3, 1])
+            
+            with col_left:
+                # Gráfico de Velas Japonesas Profesional
+                fig = go.Figure(data=[go.Candlestick(
+                    x=data_hist.index, 
+                    open=data_hist['Open'].iloc[:,0] if isinstance(data_hist['Open'], pd.DataFrame) else data_hist['Open'],
+                    high=data_hist['High'].iloc[:,0] if isinstance(data_hist['High'], pd.DataFrame) else data_hist['High'],
+                    low=data_hist['Low'].iloc[:,0] if isinstance(data_hist['Low'], pd.DataFrame) else data_hist['Low'],
+                    close=data_hist['Close'].iloc[:,0] if isinstance(data_hist['Close'], pd.DataFrame) else data_hist['Close'],
+                    increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
+                )])
+                fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col_right:
+                st.subheader("♰ ORDER BOOK")
+                # Simulación estética de Libro de Órdenes
+                bids = pd.DataFrame({
+                    'Price': [last_price * (1-i/1000) for i in range(5)], 
+                    'Size': np.random.uniform(1, 10, 5)
+                })
+                st.caption("SELL ORDERS (ASKS)")
+                st.dataframe(bids.assign(Price=bids['Price']*1.002).sort_values('Price', ascending=False), hide_index=True)
+                st.caption("BUY ORDERS (BIDS)")
+                st.dataframe(bids, hide_index=True)
+        else:
+            st.warning("No se encontraron datos para este ticker.")
             
     except Exception as e:
         st.error(f"Error en terminal: {e}")
-
 # --- MÓDULO 3: COMPARADOR (TUYO) ---
 elif modo == "COMPARADOR":
     st.header("♰ MULTI-ASSET COMPARISON")
