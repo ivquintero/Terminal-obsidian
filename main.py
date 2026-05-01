@@ -79,76 +79,86 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
-# --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
+# --- MÓDULO 1: ESCÁNER MULTITEMPORAL (OPTIMIZADO) ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
     
     with st.sidebar:
-        st.subheader("♰ ACCESO GLOBAL YAHOO")
-        query = st.text_input("BUSCAR PRODUCTO:", placeholder="Ej: Yuan, Palantir...", key="search_input")
+        st.subheader("♰ BUSCADOR DE ACTIVOS")
+        query_scan = st.text_input("BUSCAR PARA VINCULAR:", placeholder="Ej: Nvidia, Oro, Yuan...", key="search_scan").strip()
 
-        if query:
-            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+        if query_scan:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_scan}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             try:
-                response = requests.get(url, headers=headers)
-                search_data = response.json()
-                for res in search_data.get('quotes', [])[:5]:
-                    if st.button(f"➕ VINCULAR {res['symbol']}", key=f"btn_{res['symbol']}"):
-                        if "mis_activos" not in st.session_state:
-                            st.session_state.mis_activos = ["BTC-USD"]
-                        if res['symbol'] not in st.session_state.mis_activos:
-                            st.session_state.mis_activos.append(res['symbol'])
-                            st.rerun()
+                response = requests.get(url, headers=headers).json()
+                quotes = response.get('quotes', [])
+                if quotes:
+                    for res in quotes[:5]:
+                        label = f"➕ {res.get('shortname', 'N/A')} ({res['symbol']})"
+                        if st.button(label, key=f"scan_btn_{res['symbol']}"):
+                            if "mis_activos" not in st.session_state:
+                                st.session_state.mis_activos = ["BTC-USD"]
+                            if res['symbol'] not in st.session_state.mis_activos:
+                                st.session_state.mis_activos.append(res['symbol'])
+                                st.rerun()
+                else:
+                    st.warning("No se encontraron activos.")
             except:
-                st.error("Error de conexión")
+                st.error("Error de red.")
 
-    # Lista de activos y ratio de refresco
+        if st.sidebar.button("LIMPIAR MONITOR"):
+            st.session_state.mis_activos = ["BTC-USD"]
+            st.rerun()
+
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
-    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20, key="slider_scanner")
+    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
 
-    # --- FUNCIÓN CON SANGRE CORREGIDA ---
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
-            st.info("Buscador activo. Escribe un nombre a la izquierda.")
+            st.info("Monitor vacío. Busca activos en la barra lateral.")
             return
 
         cols = st.columns(4)
         for i, ticker in enumerate(lista_activos):
             try:
-                # Descarga y limpieza
+                # Descarga rápida de 1 minuto
                 data = yf.download(ticker, period="2d", interval="1m", progress=False)
+                
                 if not data.empty:
-                    # Fix para el error de 'Series'
-                    close_col = data['Close']
-                    if isinstance(close_col, pd.DataFrame):
-                        close_col = close_col.iloc[:, 0]
+                    # Aplanar MultiIndex si existe
+                    if isinstance(data.columns, pd.MultiIndex):
+                        data.columns = data.columns.get_level_values(0)
                     
-                    last_val = close_col.iloc[-1]
-                    last_price = float(last_val.iloc[0]) if hasattr(last_val, 'iloc') else float(last_val)
+                    # Extracción segura de precio escalar
+                    last_price = float(data['Close'].dropna().iloc[-1])
                     
-                    # Probabilidades
+                    # Estadísticas rápidas
                     _, ret = get_data(ticker)
                     mu, sigma = float(ret.mean()), float(ret.std())
+                    
+                    # Probabilidad a 7 días (Monte Carlo simplificado)
                     sims = monte_carlo(last_price, mu, sigma, 7, 100)
                     prob_up = (np.sum(sims[-1] > last_price) / 100) * 100
                     
-                    color = "cyan" if prob_up > 50 else "red"
+                    color = "#00ffff" if prob_up > 50 else "#ff4b4b"
                     dec = 4 if last_price < 5 else 2
 
                     with cols[i % 4]:
                         st.markdown(f"""
-                            <div style="border: 1px solid {color}; padding: 15px; background: #000; border-radius: 5px; margin-bottom: 10px;">
+                            <div style="border: 1px solid {color}55; padding: 15px; background: #0a0a0c; border-radius: 4px; margin-bottom: 10px;">
                                 <p style="margin:0; font-size:10px; color:#666;">{ticker}</p>
-                                <h3 style="margin:5px 0; color:white; font-size:20px;">${last_price:,.{dec}f}</h3>
-                                <p style="margin:0; font-size:11px; color:{color};">PROB 7D: {prob_up:.0f}%</p>
+                                <h3 style="margin:5px 0; color:white; font-size:20px; font-family:monospace;">${last_price:,.{dec}f}</h3>
+                                <div style="display:flex; align-items:center; gap:5px;">
+                                    <div style="width:6px; height:6px; border-radius:50%; background:{color};"></div>
+                                    <p style="margin:0; font-size:11px; color:{color}; font-weight:bold;">UP: {prob_up:.0f}%</p>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
             except:
                 continue
 
-    # Ejecutar la función (debe estar al mismo nivel de indentación que la definición)
     render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL (OPTIMIZADO) ---
@@ -253,24 +263,79 @@ elif modo == "TERMINAL INDIVIDUAL":
 
     except Exception as e:
         st.error(f"Error en el sistema: {e}")
-# --- MÓDULO 3: COMPARADOR (TUYO) ---
+# --- MÓDULO 3: COMPARADOR (OPTIMIZADO) ---
 elif modo == "COMPARADOR":
-    st.header("♰ MULTI-ASSET COMPARISON")
-    lista = st.text_input("TICKERS SEPARADOS POR COMA", "BTC-USD, ETH-USD, TSLA")
-    if st.button("COMPARAR MATRIZ"):
-        tickers = [t.strip().upper() for t in lista.split(",")]
+    st.header("♰ MULTI-ASSET QUANT COMPARISON")
+    st.subheader("ANÁLISIS DE CORRELACIÓN Y RIESGO")
+    
+    # Input más flexible
+    input_lista = st.text_input("TICKERS O NOMBRES (SEPARADOS POR COMA):", "BTC-USD, NVDA, TSLA, GC=F")
+    
+    if st.button("GENERAR MATRIZ CUÁNTICA"):
+        # Limpiamos la lista
+        tickers = [t.strip().upper() for t in input_lista.split(",")]
         resumen = []
-        for t in tickers:
+        
+        # Barra de progreso para dar feedback al usuario
+        prog = st.progress(0)
+        
+        for idx, t in enumerate(tickers):
             try:
-                _, ret = get_data(t)
+                # Obtener datos usando tu función base
+                df, ret = get_data(t)
+                
+                # Cálculos escalares seguros
+                mu = float(ret.mean())
+                sigma = float(ret.std())
+                vol_anual = sigma * np.sqrt(252)
+                sharpe = (mu * 252) / vol_anual if vol_anual != 0 else 0
+                max_dd = float(ret.min()) # Drawdown diario máximo
+                
                 resumen.append({
                     "ACTIVO": t,
-                    "VOLATILIDAD": f"{ret.std()*np.sqrt(252)*100:.1f}%",
-                    "SHARPE": round((ret.mean()*252)/(ret.std()*np.sqrt(252)), 2),
-                    "MAX DRAWDOWN": f"{(ret.min()*100):.1f}%"
+                    "PRECIO": f"${float(df.iloc[-1]):,.2f}",
+                    "VOLAT. ANUAL": f"{vol_anual:.1%}",
+                    "SHARPE RATIO": round(sharpe, 2),
+                    "MAX DAILY DD": f"{max_dd:.1%}",
+                    "SENTIMIENTO": "BULLISH" if mu > 0 else "BEARISH"
                 })
-            except: continue
-        st.table(pd.DataFrame(resumen))
+            except Exception as e:
+                st.warning(f"Omitiendo {t}: No se encontraron datos o formato inválido.")
+            
+            prog.progress((idx + 1) / len(tickers))
+        
+        if resumen:
+            df_resumen = pd.DataFrame(resumen)
+            
+            # Mostrar tabla con estilo gótico
+            st.table(df_resumen)
+            
+            # Gráfico comparativo de Volatilidad vs Sharpe
+            st.subheader("♰ MAPA DE RIESGO / RETORNO")
+            fig_comp = go.Figure()
+            for item in resumen:
+                # Limpiamos los strings para el gráfico
+                vol_val = float(item["VOLAT. ANUAL"].replace('%',''))
+                fig_comp.add_trace(go.Scatter(
+                    x=[vol_val], 
+                    y=[item["SHARPE RATIO"]],
+                    mode='markers+text',
+                    name=item["ACTIVO"],
+                    text=[item["ACTIVO"]],
+                    textposition="top center",
+                    marker=dict(size=15, color='#00ffff', line=dict(width=2, color='white'))
+                ))
+            
+            fig_comp.update_layout(
+                template="plotly_dark",
+                xaxis_title="VOLATILIDAD ANUAL (%)",
+                yaxis_title="SHARPE RATIO (EFICIENCIA)",
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+            st.plotly_chart(fig_comp, use_container_width=True)
+        else:
+            st.error("No se pudo procesar ningún activo de la lista.")
 
 # --- PIE DE PÁGINA ---
 st.markdown("---")
