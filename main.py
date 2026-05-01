@@ -151,7 +151,7 @@ if modo == "ESCÁNER":
     # Ejecutar la función (debe estar al mismo nivel de indentación que la definición)
     render_live_scanner()
 
-# --- MÓDULO 2: TERMINAL INDIVIDUAL (RE-DISEÑADO) ---
+# --- MÓDULO 2: TERMINAL INDIVIDUAL (VERSIÓN DEFINITIVA) ---
 elif modo == "TERMINAL INDIVIDUAL":
     st.header("♰ TRADING TERMINAL")
     with st.sidebar:
@@ -159,68 +159,74 @@ elif modo == "TERMINAL INDIVIDUAL":
         dias_sim = st.slider("PROYECCIÓN (DÍAS)", 5, 365, 30)
 
     try:
-        # Descarga de datos
+        # Descarga con historial suficiente para el gráfico y los cálculos
         data_hist = yf.download(t_input, period="1mo", interval="60m", progress=False)
         
-        if not data_hist.empty:
-            # --- FIX CRÍTICO: FORZAR ESCALARES ---
-            # 1. Limpieza de precio actual
-            last_val_raw = data_hist['Close'].iloc[-1]
-            last_price = float(last_val_raw.iloc[0]) if hasattr(last_val_raw, 'iloc') else float(last_val_raw)
+        if data_hist is not None and len(data_hist) > 0:
+            # --- LIMPIEZA UNIVERSAL DE COLUMNAS ---
+            # Si Yahoo devuelve MultiIndex (ej. ('Close', 'PLTR')), lo aplanamos
+            if isinstance(data_hist.columns, pd.MultiIndex):
+                data_hist.columns = data_hist.columns.get_level_values(0)
             
-            # 2. Limpieza de retornos y estadísticas
+            # 1. Precio Actual (Seguro)
+            last_price = float(data_hist['Close'].dropna().iloc[-1])
+            
+            # 2. Estadísticas para Monte Carlo
             df_full, ret = get_data(t_input)
-            
-            # Forzamos mu y sigma a ser floats puros
-            mu_raw = ret.mean()
-            mu = float(mu_raw.iloc[0]) if hasattr(mu_raw, 'iloc') else float(mu_raw)
-            
-            sigma_raw = ret.std()
-            sigma = float(sigma_raw.iloc[0]) if hasattr(sigma_raw, 'iloc') else float(sigma_raw)
-            # -------------------------------------
+            mu = float(ret.mean())
+            sigma = float(ret.std())
 
-            # Dashboard de cabecera estilo Exchange
+            # Dashboard de cabecera
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("PRECIO ACTUAL", f"${last_price:,.2f}")
-            c2.metric("VOLATILIDAD ANUAL", f"{sigma*np.sqrt(252):.1%}")
-            
-            # Limpieza para Max/Min
-            high_30 = data_hist['High'].max()
-            low_30 = data_hist['Low'].min()
-            c3.metric("MAX 30D", f"${float(high_30.iloc[0]) if hasattr(high_30, 'iloc') else float(high_30):,.2f}")
-            c4.metric("MIN 30D", f"${float(low_30.iloc[0]) if hasattr(low_30, 'iloc') else float(low_30):,.2f}")
+            c1.metric("LAST PRICE", f"${last_price:,.2f}")
+            c2.metric("VOLATILITY (ANN)", f"{sigma*np.sqrt(252):.1%}")
+            c3.metric("MONTH HIGH", f"${float(data_hist['High'].max()):,.2f}")
+            c4.metric("MONTH LOW", f"${float(data_hist['Low'].min()):,.2f}")
 
+            st.markdown("---")
             col_left, col_right = st.columns([3, 1])
             
             with col_left:
-                # Gráfico de Velas Japonesas Profesional
+                # Gráfico de Velas Japonesas
                 fig = go.Figure(data=[go.Candlestick(
-                    x=data_hist.index, 
-                    open=data_hist['Open'].iloc[:,0] if isinstance(data_hist['Open'], pd.DataFrame) else data_hist['Open'],
-                    high=data_hist['High'].iloc[:,0] if isinstance(data_hist['High'], pd.DataFrame) else data_hist['High'],
-                    low=data_hist['Low'].iloc[:,0] if isinstance(data_hist['Low'], pd.DataFrame) else data_hist['Low'],
-                    close=data_hist['Close'].iloc[:,0] if isinstance(data_hist['Close'], pd.DataFrame) else data_hist['Close'],
-                    increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
+                    x=data_hist.index,
+                    open=data_hist['Open'],
+                    high=data_hist['High'],
+                    low=data_hist['Low'],
+                    close=data_hist['Close'],
+                    increasing_line_color='#00ffff', 
+                    decreasing_line_color='#ff4b4b'
                 )])
-                fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
+                fig.update_layout(
+                    template="plotly_dark", 
+                    height=500, 
+                    margin=dict(l=0,r=0,t=0,b=0),
+                    xaxis_rangeslider_visible=False,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
+                )
                 st.plotly_chart(fig, use_container_width=True)
 
             with col_right:
                 st.subheader("♰ ORDER BOOK")
-                # Simulación estética de Libro de Órdenes
-                bids = pd.DataFrame({
-                    'Price': [last_price * (1-i/1000) for i in range(5)], 
-                    'Size': np.random.uniform(1, 10, 5)
-                })
-                st.caption("SELL ORDERS (ASKS)")
-                st.dataframe(bids.assign(Price=bids['Price']*1.002).sort_values('Price', ascending=False), hide_index=True)
-                st.caption("BUY ORDERS (BIDS)")
-                st.dataframe(bids, hide_index=True)
+                # Simulación de Libro de Órdenes
+                bids_price = [last_price * (1 - i/1000) for i in range(5)]
+                asks_price = [last_price * (1 + i/1000) for i in range(5)]
+                
+                st.caption("SELL ORDERS")
+                st.dataframe(pd.DataFrame({'Price': asks_price, 'Size': np.random.uniform(1, 10, 5)}).sort_values('Price', ascending=False), hide_index=True)
+                
+                st.caption("BUY ORDERS")
+                st.dataframe(pd.DataFrame({'Price': bids_price, 'Size': np.random.uniform(1, 10, 5)}), hide_index=True)
+                
+                # Sentimiento basado en Monte Carlo rápido
+                prob_up = (np.sum(monte_carlo(last_price, mu, sigma, 30, 200)[-1] > last_price) / 200)
+                st.warning(f"SENTIMIENTO: {'BULLISH' if prob_up > 0.5 else 'BEARISH'} ({prob_up:.1%})")
         else:
-            st.warning("No se encontraron datos para este ticker.")
+            st.error(f"No se encontraron datos para '{t_input}'. Verifica el ticker en Yahoo Finance.")
             
     except Exception as e:
-        st.error(f"Error en terminal: {e}")
+        st.error(f"Error técnico en terminal: {e}")
 # --- MÓDULO 3: COMPARADOR (TUYO) ---
 elif modo == "COMPARADOR":
     st.header("♰ MULTI-ASSET COMPARISON")
