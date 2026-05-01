@@ -182,7 +182,95 @@ if modo == "ESCÁNER":
                 continue
 
     render_live_scanner()
+# --- MÓDULO 2: TERMINAL INDIVIDUAL ---
+if modo == "TERMINAL INDIVIDUAL":
+    st.header("♰ QUANTUM INDIVIDUAL TERMINAL")
+    
+    with st.sidebar:
+        st.subheader("♰ BÚSQUEDA DE ACTIVO")
+        # 1. Buscador idéntico al del Escáner para consistencia total
+        query_ind = st.text_input("BUSCAR NOMBRE O TICKER:", placeholder="Ej: Palantir, Yuan...", key="search_ind")
+        
+        sugerencias_ind = {}
+        ticker_final_ind = "PLTR" # Ticker por defecto
 
+        if query_ind:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_ind}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            try:
+                resp = requests.get(url, headers=headers)
+                data_ind = resp.json()
+                for res in data_ind.get('quotes', []):
+                    if 'symbol' in res and 'shortname' in res:
+                        label = f"{res['shortname']} ({res['symbol']})"
+                        sugerencias_ind[label] = res['symbol']
+            except:
+                st.error("Error de red.")
+
+        if sugerencias_ind:
+            seleccion_ind = st.selectbox("SELECCIONA:", options=list(sugerencias_ind.keys()), key="select_ind")
+            ticker_final_ind = sugerencias_ind[seleccion_ind]
+        
+        dias_sim = st.slider("PROYECCIÓN (DÍAS)", 5, 365, 30, key="slider_ind")
+
+    try:
+        # 2. Descarga robusta (Intento 1m, luego 60m)
+        data = yf.download(ticker_final_ind, period="5d", interval="1m", progress=False)
+        if data.empty:
+            data = yf.download(ticker_final_ind, period="1mo", interval="60m", progress=False)
+
+        if not data.empty:
+            # 3. Extracción de precio ultra-limpia
+            last_price_raw = data['Close'].iloc[-1]
+            last_price = float(last_price_raw.iloc[0]) if hasattr(last_price_raw, 'iloc') else float(last_price_raw)
+            
+            # Cálculo de retornos para métricas
+            change_pct = data['Close'].pct_change().iloc[-1]
+            change_val = float(change_pct.iloc[0]) if hasattr(change_pct, 'iloc') else float(change_pct)
+
+            # --- Layout Superior ---
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                dec_m = 4 if last_price < 5 else 2
+                st.metric(f"PRECIO {ticker_final_ind}", f"${last_price:,.{dec_m}f}", f"{change_val:.2%}")
+            
+            # 4. Procesamiento para Monte Carlo y Gráfica
+            # Usamos period="1y" para tener historial suficiente para mu y sigma
+            hist, ret = get_data(ticker_final_ind)
+            mu, sigma = float(ret.mean()), float(ret.std())
+            sims = monte_carlo(last_price, mu, sigma, dias_sim, 100)
+            
+            with c2:
+                prob_up = (np.sum(sims[-1] > last_price) / 100) * 100
+                st.metric("PROBABILIDAD ALZA", f"{prob_up:.1f}%")
+            
+            with c3:
+                vol = sigma * np.sqrt(252) * 100
+                st.metric("VOLATILIDAD ANUAL", f"{vol:.1f}%")
+
+            # --- Gráfica de Proyección ---
+            st.subheader("♰ PROYECCIÓN DE RUTAS CUÁNTICAS")
+            fig = go.Figure()
+            
+            # Dibujar rutas de simulación
+            for s in range(min(50, sims.shape[1])):
+                fig.add_trace(go.Scatter(y=sims[:, s], mode='lines', 
+                                       line=dict(width=1, color='gray'), opacity=0.2, showlegend=False))
+            
+            # Línea de tendencia media
+            fig.add_trace(go.Scatter(y=sims.mean(axis=1), mode='lines', 
+                                   line=dict(color='cyan', width=3), name="Tendencia Media"))
+            
+            fig.update_layout(template="plotly_dark", height=450, 
+                             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                             xaxis_title="Días Proyectados", yaxis_title="Precio Estimado")
+            st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.error(f"El ticker {ticker_final_ind} no devolvió datos. Revisa si es correcto.")
+            
+    except Exception as e:
+        st.warning(f"Esperando configuración de activo... ({e})")
 # --- MÓDULO 3: COMPARADOR ---
 elif modo == "COMPARADOR":
     st.header("♰ MULTI-ASSET COMPARISON")
