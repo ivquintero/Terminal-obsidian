@@ -99,31 +99,64 @@ if modo == "ESCÁNER":
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
     refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
     
-    @st.fragment(run_every=refresh_rate)
-    def render_live_scanner():
-        cols = st.columns(4)
-        for i, ticker in enumerate(lista_activos):
-            try:
-                # Datos rápidos para el monitor
-                df_min = yf.download(ticker, period="2d", interval="15m", progress=False)
-                last_p = float(df_min['Close'].iloc[-1])
-                # Probabilidad (usando tu función get_data)
-                _, ret = get_data(ticker)
-                mu, sigma = float(ret.mean()), float(ret.std())
-                sims = monte_carlo(last_p, mu, sigma, 7, 100)
-                prob_up = (np.sum(sims[-1] > last_p) / 100) * 100
-                color = "#00ffff" if prob_up > 50 else "#ff4b4b"
+   @st.fragment(run_every=refresh_rate)
+def render_live_scanner():
+    if not lista_activos:
+        st.info("Buscador activo. Escribe un nombre a la izquierda para empezar.")
+        return
+
+    cols = st.columns(4)
+    for i, ticker in enumerate(lista_activos):
+        try:
+            # 1. Descarga de datos
+            data = yf.download(ticker, period="2d", interval="1m", progress=False)
+            if data.empty:
+                data = yf.download(ticker, period="5d", interval="60m", progress=False)
+
+            if not data.empty:
+                # --- FIX CRÍTICO AQUÍ ---
+                # Extraemos la columna 'Close' y nos aseguramos de que sea una Serie plana
+                close_col = data['Close']
+                if isinstance(close_col, pd.DataFrame):
+                    close_col = close_col.iloc[:, 0]
                 
+                # Obtenemos el último valor y forzamos la conversión a escalar
+                last_val = close_col.iloc[-1]
+                last_price = float(last_val.iloc[0]) if hasattr(last_val, 'iloc') else float(last_val)
+                # ------------------------
+                
+                # Cálculo de Probabilidades (blindamos mu y sigma también)
+                _, ret = get_data(ticker) 
+                mu = float(ret.mean().iloc[0]) if hasattr(ret.mean(), 'iloc') else float(ret.mean())
+                sigma = float(ret.std().iloc[0]) if hasattr(ret.std(), 'iloc') else float(ret.std())
+                
+                sims = monte_carlo(last_price, mu, sigma, 7, 500)
+                prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
+
+                # Tarjeta Visual (Look Profesional)
                 with cols[i % 4]:
+                    color = "#00ffff" if prob_up > 50 else "#ff4b4b" # Cyan vs Rojo Neón
+                    dec = 4 if last_price < 5 else 2
+                    
                     st.markdown(f"""
-                        <div class="quant-card">
-                            <p style="margin:0; font-size:10px; color:#666;">{ticker}</p>
-                            <h3 style="margin:5px 0; font-size:22px;">${last_p:,.2f}</h3>
-                            <p style="margin:0; font-size:12px; color:{color}; font-weight:bold;">PROB 7D: {prob_up:.0f}%</p>
+                        <div style="border: 1px solid {color}55; padding: 15px; background: #0a0a0c; border-radius: 4px; margin-bottom: 15px; min-height: 110px;">
+                            <p style="margin:0; font-size:10px; color:#666; font-weight:bold; letter-spacing:1px;">{ticker}</p>
+                            <h3 style="margin:5px 0; color:white; font-size:22px; font-family:monospace;">${last_price:,.{dec}f}</h3>
+                            <div style="display:flex; align-items:center; gap:5px; border-top: 1px solid #1e1e26; padding-top:8px; margin-top:8px;">
+                                <div style="width:6px; height:6px; border-radius:50%; background:{color}; box-shadow: 0 0 5px {color};"></div>
+                                <p style="margin:0; font-size:11px; color:{color}; font-weight:bold;">PROB 7D: {prob_up:.0f}%</p>
+                            </div>
                         </div>
                     """, unsafe_allow_html=True)
-            except: continue
-    render_live_scanner()
+            else:
+                with cols[i % 4]:
+                    st.error(f"Sin datos: {ticker}")
+        except Exception as e:
+            # Opcional: imprimir error en consola para debug
+            # print(f"Error en {ticker}: {e}")
+            continue
+
+render_live_scanner()
 
 # --- MÓDULO 2: TERMINAL INDIVIDUAL (RE-DISEÑADO) ---
 elif modo == "TERMINAL INDIVIDUAL":
