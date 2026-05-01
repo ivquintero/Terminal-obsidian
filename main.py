@@ -151,102 +151,108 @@ if modo == "ESCÁNER":
     # Ejecutar la función (debe estar al mismo nivel de indentación que la definición)
     render_live_scanner()
 
-# --- MÓDULO 2: TERMINAL INDIVIDUAL (CON BUSCADOR PREDICTIVO) ---
+# --- MÓDULO 2: TERMINAL INDIVIDUAL (OPTIMIZADO) ---
 elif modo == "TERMINAL INDIVIDUAL":
     st.header("♰ TRADING TERMINAL")
     
     with st.sidebar:
         st.subheader("♰ BUSCADOR INTELIGENTE")
-        # Paso 1: El usuario escribe el nombre (Ej: Palantir, Apple, Gold)
-        query_term = st.text_input("BUSCAR POR NOMBRE:", placeholder="Ej: Palantir...", key="term_search")
+        # Limpiamos la entrada del usuario para evitar espacios muertos
+        query_raw = st.text_input("BUSCAR POR NOMBRE:", placeholder="Ej: Nvidia, Apple, BTC...", key="term_search").strip()
         
-        # Ticker por defecto si no hay búsqueda
-        ticker_final = "PLTR" 
+        ticker_final = "PLTR" # Default
         
-        if query_term:
-            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}"
+        if query_raw:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_raw}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             try:
                 res = requests.get(url, headers=headers).json()
-                # Filtramos y creamos un diccionario de {Nombre Legible: Ticker}
-                search_options = {
-                    f"{q.get('shortname', 'N/A')} ({q['symbol']}) - {q.get('exchDisp', '')}": q['symbol'] 
-                    for q in res.get('quotes', []) if 'symbol' in q
-                }
+                quotes = res.get('quotes', [])
                 
-                if search_options:
-                    # El usuario elige el activo de la lista desplegable
-                    seleccion = st.selectbox("SELECCIONA EL ACTIVO:", options=list(search_options.keys()))
+                if quotes:
+                    # Mapeamos sugerencias reales de Yahoo
+                    search_options = {
+                        f"{q.get('shortname', 'N/A')} ({q['symbol']})": q['symbol'] 
+                        for q in quotes if 'symbol' in q
+                    }
+                    seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=list(search_options.keys()))
                     ticker_final = search_options[seleccion]
-                    st.success(f"TICKER CARGADO: {ticker_final}")
                 else:
-                    st.warning("No se encontraron resultados.")
+                    # Si no hay resultados (error de dedo), usamos el texto tal cual en mayúsculas
+                    ticker_final = query_raw.upper()
+                    st.caption(f"Sin sugerencias. Probando con ticker: {ticker_final}")
             except:
-                st.error("Error al conectar con el servidor de búsqueda.")
+                ticker_final = query_raw.upper()
         
+        st.success(f"ACTIVO: {ticker_final}")
         st.markdown("---")
         dias_sim = st.slider("PROYECCIÓN (DÍAS)", 5, 365, 30)
 
-    # --- LÓGICA DE CARGA Y RENDERIZADO ---
+    # --- LÓGICA DE RENDERIZADO ROBUSTA ---
     try:
-        # Descargamos datos usando el ticker validado por la búsqueda
+        # Descarga con manejo de errores para tickers inválidos
         data_hist = yf.download(ticker_final, period="1mo", interval="60m", progress=False)
         
         if not data_hist.empty:
-            # Aplanamos MultiIndex por si Yahoo envía columnas dobles
+            # Corregimos el problema de los niveles de columnas (MultiIndex)
             if isinstance(data_hist.columns, pd.MultiIndex):
                 data_hist.columns = data_hist.columns.get_level_values(0)
             
-            # Limpieza de precio y estadísticas
-            last_price = float(data_hist['Close'].dropna().iloc[-1])
-            df_full, ret = get_data(ticker_final)
-            mu, sigma = float(ret.mean()), float(ret.std())
+            # Aseguramos que Close sea una Serie limpia
+            close_series = data_hist['Close'].dropna()
+            if close_series.empty:
+                st.error("Datos de precio no disponibles para este activo.")
+            else:
+                last_price = float(close_series.iloc[-1])
+                df_full, ret = get_data(ticker_final)
+                mu, sigma = float(ret.mean()), float(ret.std())
 
-            # Dashboard de métricas
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("ACTIVO", ticker_final)
-            c2.metric("PRECIO ACTUAL", f"${last_price:,.2f}")
-            c3.metric("VOLATILIDAD", f"{sigma*np.sqrt(252):.1%}")
-            c4.metric("MAX 30D", f"${float(data_hist['High'].max()):,.2f}")
+                # Métricas Principales
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("TICKER", ticker_final)
+                c2.metric("PRECIO", f"${last_price:,.2f}")
+                c3.metric("VOLATILIDAD (ANUAL)", f"{sigma*np.sqrt(252):.1%}")
+                c4.metric("MAX 30D", f"${float(data_hist['High'].max()):,.2f}")
 
-            st.markdown("---")
-            col_left, col_right = st.columns([3, 1])
-            
-            with col_left:
-                # Gráfico de Velas Japonesas
-                fig = go.Figure(data=[go.Candlestick(
-                    x=data_hist.index,
-                    open=data_hist['Open'], high=data_hist['High'],
-                    low=data_hist['Low'], close=data_hist['Close'],
-                    increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
-                )])
-                fig.update_layout(
-                    template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0),
-                    xaxis_rangeslider_visible=False,
-                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                st.markdown("---")
+                col_left, col_right = st.columns([3, 1])
+                
+                with col_left:
+                    # Gráfico de Velas
+                    fig = go.Figure(data=[go.Candlestick(
+                        x=data_hist.index,
+                        open=data_hist['Open'], high=data_hist['High'],
+                        low=data_hist['Low'], close=data_hist['Close'],
+                        increasing_line_color='#00ffff', decreasing_line_color='#ff4b4b'
+                    )])
+                    fig.update_layout(
+                        template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0),
+                        xaxis_rangeslider_visible=False,
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-            with col_right:
-                st.subheader("♰ ORDER BOOK")
-                # Simulación estética de Libro de Órdenes
-                bids_p = [last_price * (1 - i/1000) for i in range(5)]
-                asks_p = [last_price * (1 + i/1000) for i in range(5)]
-                
-                st.caption("SELL ORDERS")
-                st.dataframe(pd.DataFrame({'Price': asks_p, 'Size': np.random.uniform(1, 10, 5)}).sort_values('Price', ascending=False), hide_index=True)
-                
-                st.caption("BUY ORDERS")
-                st.dataframe(pd.DataFrame({'Price': bids_p, 'Size': np.random.uniform(1, 10, 5)}), hide_index=True)
-                
-                # Análisis de Sentimiento
-                prob_up = (np.sum(monte_carlo(last_price, mu, sigma, 30, 200)[-1] > last_price) / 200)
-                st.warning(f"SENTIMIENTO: {'BULLISH' if prob_up > 0.5 else 'BEARISH'} ({prob_up:.1%})")
+                with col_right:
+                    st.subheader("♰ ORDER BOOK")
+                    # Simulación dinámica basada en el precio real
+                    bids_p = [last_price * (1 - i/1000) for i in range(5)]
+                    asks_p = [last_price * (1 + i/1000) for i in range(5)]
+                    
+                    st.caption("SELL SIDE")
+                    st.dataframe(pd.DataFrame({'Price': asks_p, 'Size': np.random.uniform(0.1, 5, 5)}).sort_values('Price', ascending=False), hide_index=True)
+                    
+                    st.caption("BUY SIDE")
+                    st.dataframe(pd.DataFrame({'Price': bids_p, 'Size': np.random.uniform(0.1, 5, 5)}), hide_index=True)
+                    
+                    # Probabilidad con Monte Carlo
+                    sims = monte_carlo(last_price, mu, sigma, dias_sim, 100)
+                    prob_up = (np.sum(sims[-1] > last_price) / 100)
+                    st.info(f"PROB. ALCISTA ({dias_sim}d): {prob_up:.1%}")
         else:
-            st.info("Escribe el nombre de un activo en la barra lateral para comenzar.")
+            st.warning(f"No se encontraron datos para '{ticker_final}'. Revisa el ticker o busca por nombre.")
 
     except Exception as e:
-        st.error(f"Error técnico en terminal: {e}")
+        st.error(f"Error en el sistema: {e}")
 # --- MÓDULO 3: COMPARADOR (TUYO) ---
 elif modo == "COMPARADOR":
     st.header("♰ MULTI-ASSET COMPARISON")
