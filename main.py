@@ -80,6 +80,7 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
     return res
 
 
+
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
@@ -87,54 +88,86 @@ if modo == "ESCÁNER":
     with st.sidebar:
         st.subheader("♰ ACCESO GLOBAL YAHOO")
         
-        # 1. Entrada de texto para buscar en la base de datos de Yahoo
-        query = st.text_input("BUSCAR PRODUCTO (Nombre o Ticker):", placeholder="Ej: Palantir, Yuan, Nintendo...")
+        # 1. Entrada de texto para buscar
+        query = st.text_input("BUSCAR PRODUCTO:", placeholder="Ej: Yuan, Palantir, Gold, Nintendo...")
 
-        sugerencias_yahoo = []
+        sugerencias_yahoo = {}
         
         if query:
-            # 2. CONSULTA EN TIEMPO REAL A YAHOO FINANCE
-            # Esta URL es la que usa el buscador de Yahoo para autocompletar
+            # Consulta directa a la API de búsqueda de Yahoo
             url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             
             try:
                 response = requests.get(url, headers=headers)
                 data = response.json()
-                # Extraemos los resultados (quotes)
-                # Cada resultado tiene el ticker (symbol) y el nombre (shortname)
-                sugerencias_yahoo = [
-                    f"{res['shortname']} ({res['symbol']})" 
-                    for res in data.get('quotes', []) 
-                    if 'symbol' in res and 'shortname' in res
-                ]
+                # Guardamos nombre y ticker en un diccionario para que sea fácil elegir
+                for res in data.get('quotes', []):
+                    if 'symbol' in res and 'shortname' in res:
+                        nombre_pantalla = f"{res['shortname']} ({res['symbol']}) - {res.get('quoteType', '')}"
+                        sugerencias_yahoo[nombre_pantalla] = res['symbol']
             except:
-                st.error("Error de conexión con la base de datos.")
+                st.error("Error conectando con Yahoo.")
 
-        # 3. Mostrar los resultados encontrados en Yahoo
+        # 2. Mostrar los resultados en un selector
         if sugerencias_yahoo:
-            seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=[""] + sugerencias_yahoo)
+            seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=[""] + list(sugerencias_yahoo.keys()))
             
             if seleccion != "":
-                # Extraer el ticker de entre los paréntesis
-                ticker_final = seleccion.split("(")[-1].replace(")", "")
+                ticker_final = sugerencias_yahoo[seleccion]
                 
-                # Gestión de la lista del monitor
                 if "mis_activos" not in st.session_state:
-                    st.session_state.mis_activos = []
+                    st.session_state.mis_activos = ["BTC-USD"]
                 
                 if st.button(f"➕ VINCULAR {ticker_final}"):
                     if ticker_final not in st.session_state.mis_activos:
                         st.session_state.mis_activos.append(ticker_final)
-                        st.success(f"{ticker_final} añadido.")
                         st.rerun()
         elif query:
-            st.warning("No se encontraron productos con ese nombre.")
+            st.warning("No se encontraron coincidencias exactas.")
 
-        # Control del Monitor
         if st.button("🗑️ RESET MONITOR"):
             st.session_state.mis_activos = []
             st.rerun()
+
+    # Recuperamos los activos guardados
+    lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
+
+    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
+    
+    @st.fragment(run_every=refresh_rate)
+    def render_live_scanner():
+        if not lista_activos:
+            st.info("Buscador activo. Escribe un nombre a la izquierda para empezar.")
+            return
+
+        cols = st.columns(4)
+        for i, ticker in enumerate(lista_activos):
+            try:
+                data = yf.download(ticker, period="1d", interval="1m", progress=False)
+                if not data.empty:
+                    # --- LÓGICA DE PRECIO Y MONTE CARLO ---
+                    last_price = float(data['Close'].iloc[-1])
+                    _, ret = get_data(ticker) 
+                    mu, sigma = float(ret.mean()), float(ret.std())
+                    
+                    # Simulación rápida (500 iteraciones para no trabar el buscador)
+                    sims = monte_carlo(last_price, mu, sigma, 7, 500)
+                    prob_up = float((np.sum(sims[-1] > last_price) / 500) * 100)
+
+                    with cols[i % 4]:
+                        color = "cyan" if prob_up > 50 else "red"
+                        st.markdown(f"""
+                            <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px;">
+                                <p style="margin:0; font-size:9px; color:#555;">{ticker}</p>
+                                <h4 style="margin:0; color:white; font-size:14px;">${last_price:,.2f}</h4>
+                                <p style="margin:0; font-size:10px; color:{color};">Prob 7D: {prob_up:.0f}%</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+            except:
+                continue
+
+    render_live_scanner()
 
     # Los activos que el monitor va a pintar
     lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
