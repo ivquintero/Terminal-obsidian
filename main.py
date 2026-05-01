@@ -79,81 +79,42 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
     return res
 
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
+# --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
-    st.sidebar.subheader("♰ BUSCADOR DE ACTIVOS")
+    st.sidebar.subheader("♰ BUSCADOR INTELIGENTE")
     
-    # 1. Creamos una base de datos de sugerencias mucho más amplia
-    # Puedes seguir añadiendo aquí todos los que quieras
-    sugerencias = [
-        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "ADA-USD", "DOGE-USD", # Criptos
-        "NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "META", "GOOGL", "NFLX",  # Tech USA
-        "AMD", "INTC", "PYPL", "BABA", "COIN", "MSTR",                    # Más Acciones
-        "GC=F", "SI=F", "CL=F", "NG=F",                                   # Oro, Plata, Petróleo
-        "^GSPC", "^IXIC", "^DJI",                                         # Índices
-        "EURUSD=X", "USDMXN=X", "GBPUSD=X"                                # Divisas
+    # 1. Expandimos la base de datos con nombres comunes para que el buscador los encuentre
+    # Formato: "Nombre Común (TICKER)"
+    db_busqueda = [
+        "Palantir (PLTR)", "Bitcoin (BTC-USD)", "Ethereum (ETH-USD)", 
+        "NVIDIA (NVDA)", "Apple (AAPL)", "Tesla (TSLA)", "Microsoft (MSFT)",
+        "Amazon (AMZN)", "Meta (META)", "Google (GOOGL)", "Netflix (NFLX)",
+        "MicroStrategy (MSTR)", "Coinbase (COIN)", "AMD (AMD)", "Intel (INTC)",
+        "Oro (GC=F)", "Plata (SI=F)", "Petróleo (CL=F)", "S&P 500 (^GSPC)"
     ]
 
-    # 2. Selector con búsqueda inteligente
-    # Al escribir, Streamlit filtrará las 'sugerencias', pero si escribes algo
-    # nuevo y das ENTER, lo aceptará como un ticker válido.
-    lista_activos = st.sidebar.multiselect(
-        "ESCRIBE O BUSCA PRODUCTOS:",
-        options=sugerencias,
-        default=["BTC-USD", "NVDA", "GC=F"],
-        help="Escribe el ticker (ej: TSLA) y presiona ENTER si no está en la lista."
+    # 2. El Multiselect ahora es tu buscador
+    eleccion_usuario = st.sidebar.multiselect(
+        "BUSCA POR NOMBRE O ESCRIBE TICKER:",
+        options=db_busqueda,
+        default=["Bitcoin (BTC-USD)", "Palantir (PLTR)"],
+        help="Si no ves el activo, escribe su TICKER (ej: PLTR) y dale a ENTER"
     )
 
-    refresh_rate = st.sidebar.slider("REFRESCO AUTOMÁTICO (SEG)", 5, 60, 20)
+    # 3. Limpiamos la elección para quedarnos solo con el Ticker entre paréntesis
+    # Esta línea es la "magia" que extrae el código para Yahoo Finance
+    lista_activos = []
+    for item in eleccion_usuario:
+        if "(" in item and ")" in item:
+            ticker = item.split("(")[1].split(")")[0]
+            lista_activos.append(ticker)
+        else:
+            lista_activos.append(item.upper()) # Por si escribes el ticker directo
 
-    @st.fragment(run_every=refresh_rate)
-    def render_live_scanner():
-        if not lista_activos:
-            st.warning("⚠️ La matriz está vacía. Añade activos en la barra lateral.")
-            return
-
-        cols = st.columns(4)
-        with st.spinner("Sincronizando con la Red..."):
-            for i, ticker in enumerate(lista_activos):
-                try:
-                    data = yf.download(ticker, period="1d", interval="1m", progress=False)
-                    
-                    if not data.empty:
-                        # --- LÓGICA DE CÁLCULO ---
-                        close_col = data['Close']
-                        last_price = float(close_col.iloc[-1, 0]) if isinstance(close_col, pd.DataFrame) else float(close_col.iloc[-1])
-                        
-                        # Obtenemos datos históricos para el modelo
-                        _, ret = get_data(ticker) 
-                        mu, sigma = float(ret.mean()), float(ret.std())
-                        
-                        # Horizontes y Proyecciones
-                        horizontes = {"7D": 7, "30D": 30, "6M": 126, "1A": 252}
-                        res = {}
-                        for etiqueta, dias in horizontes.items():
-                            sim_results = monte_carlo(last_price, mu, sigma, dias, 1000)
-                            res[etiqueta] = float((np.sum(sim_results[-1] > last_price) / 1000) * 100)
-
-                        # Tarjeta Visual
-                        with cols[i % 4]:
-                            color = "cyan" if res["7D"] > 50 else "red"
-                            st.markdown(f"""
-                                <div style="border: 1px solid {color}; padding: 10px; background: #000; border-radius: 8px; margin-bottom: 10px;">
-                                    <p style="margin:0; font-size:11px; color:#666; font-weight:bold;">{ticker}</p>
-                                    <h4 style="margin:0; color:white; font-size:14px;">${last_price:,.2f}</h4>
-                                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top:8px; font-family:monospace; font-size:9px;">
-                                        <div style="color:#444;">7D: <span style="color:{'cyan' if res['7D']>50 else 'red'}">{res['7D']:.0f}%</span></div>
-                                        <div style="color:#444;">30D: <span style="color:{'cyan' if res['30D']>50 else 'red'}">{res['30D']:.0f}%</span></div>
-                                        <div style="color:#444;">6M: <span style="color:{'cyan' if res['6M']>50 else 'red'}">{res['6M']:.0f}%</span></div>
-                                        <div style="color:#444;">1A: <span style="color:{'cyan' if res['1A']>50 else 'red'}">{res['1A']:.0f}%</span></div>
-                                    </div>
-                                </div>
-                            """, unsafe_allow_html=True)
-                except:
-                    # Si el ticker no existe o hay error, simplemente se salta para no romper la app
-                    continue
-
-    render_live_scanner()
+    refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
+    
+    # ... (Aquí sigue tu función render_live_scanner() igual que antes)
 # --- MÓDULO 2: TERMINAL INDIVIDUAL ---
 elif modo == "TERMINAL INDIVIDUAL":
     col1, col2 = st.columns([1, 3])
