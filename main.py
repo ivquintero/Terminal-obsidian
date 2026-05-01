@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from scipy.stats import skew, kurtosis
 from datetime import datetime
 import time # Necesario para el temporizador
+import requests
 
 # --- CONFIGURACIÓN ESTÉTICA GÓTICA ---
 st.set_page_config(page_title="OBSIDIANA QUANT TERMINAL", layout="wide")
@@ -78,111 +79,89 @@ def monte_carlo(last_price, mu, sigma, days, n_sims):
         res[t] = res[t-1] * np.exp(np.random.normal(mu, sigma, n_sims))
     return res
 
+
 # --- MÓDULO 1: ESCÁNER MULTITEMPORAL ---
 if modo == "ESCÁNER":
     st.header("♰ LIVE QUANTUM MONITOR")
     
     with st.sidebar:
-        st.subheader("♰ BUSCADOR INTELIGENTE")
+        st.subheader("♰ ACCESO GLOBAL YAHOO")
         
-        # 1. Base de datos de "Correlación" (Nombres vs Tickers)
-        # Esta lista es la que el buscador usará para darte opciones abajo
-        db_global = {
-            "Yuan Chino (CNYUSD=X)": "CNYUSD=X",
-            "Palantir Technologies (PLTR)": "PLTR",
-            "Bitcoin (BTC-USD)": "BTC-USD",
-            "Ethereum (ETH-USD)": "ETH-USD",
-            "NVIDIA Corp (NVDA)": "NVDA",
-            "Apple Inc (AAPL)": "AAPL",
-            "Tesla Inc (TSLA)": "TSLA",
-            "Oro Comex (GC=F)": "GC=F",
-            "Plata (SI=F)": "SI=F",
-            "Peso Mexicano (USDMXN=X)": "USDMXN=X",
-            "Euro / US Dollar (EURUSD=X)": "EURUSD=X",
-            "S&P 500 Index (^GSPC)": "^GSPC",
-            "Nasdaq 100 (^IXIC)": "^IXIC",
-            "Amazon (AMZN)": "AMZN",
-            "Microsoft (MSFT)": "MSFT",
-            "Google Alphabet (GOOGL)": "GOOGL",
-            "Netflix (NFLX)": "NFLX",
-            "MicroStrategy (MSTR)": "MSTR"
-        }
+        # 1. Entrada de texto para buscar en la base de datos de Yahoo
+        query = st.text_input("BUSCAR PRODUCTO (Nombre o Ticker):", placeholder="Ej: Palantir, Yuan, Nintendo...")
 
-        # 2. El Buscador (Filtra mientras escribes)
-        opcion_busqueda = st.selectbox(
-            "ESCRIBE NOMBRE O PRODUCTO:",
-            options=[""] + list(db_global.keys()),
-            format_func=lambda x: "🔎 Buscar..." if x == "" else x,
-            help="Escribe 'yuan', 'palantir' o cualquier nombre aquí."
-        )
+        sugerencias_yahoo = []
+        
+        if query:
+            # 2. CONSULTA EN TIEMPO REAL A YAHOO FINANCE
+            # Esta URL es la que usa el buscador de Yahoo para autocompletar
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            
+            try:
+                response = requests.get(url, headers=headers)
+                data = response.json()
+                # Extraemos los resultados (quotes)
+                # Cada resultado tiene el ticker (symbol) y el nombre (shortname)
+                sugerencias_yahoo = [
+                    f"{res['shortname']} ({res['symbol']})" 
+                    for res in data.get('quotes', []) 
+                    if 'symbol' in res and 'shortname' in res
+                ]
+            except:
+                st.error("Error de conexión con la base de datos.")
 
-        # 3. Lista de activos seleccionados (Aquí se guardan los que elijas)
-        if "mis_activos" not in st.session_state:
-            st.session_state.mis_activos = ["BTC-USD", "PLTR"]
+        # 3. Mostrar los resultados encontrados en Yahoo
+        if sugerencias_yahoo:
+            seleccion = st.selectbox("RESULTADOS ENCONTRADOS:", options=[""] + sugerencias_yahoo)
+            
+            if seleccion != "":
+                # Extraer el ticker de entre los paréntesis
+                ticker_final = seleccion.split("(")[-1].replace(")", "")
+                
+                # Gestión de la lista del monitor
+                if "mis_activos" not in st.session_state:
+                    st.session_state.mis_activos = []
+                
+                if st.button(f"➕ VINCULAR {ticker_final}"):
+                    if ticker_final not in st.session_state.mis_activos:
+                        st.session_state.mis_activos.append(ticker_final)
+                        st.success(f"{ticker_final} añadido.")
+                        st.rerun()
+        elif query:
+            st.warning("No se encontraron productos con ese nombre.")
 
-        # Botón para añadir la opción seleccionada arriba
-        if opcion_busqueda != "":
-            ticker_elegido = db_global[opcion_busqueda]
-            if ticker_elegido not in st.session_state.mis_activos:
-                if st.button(f"➕ AÑADIR {ticker_elegido}"):
-                    st.session_state.mis_activos.append(ticker_elegido)
-                    st.rerun()
-
-        # Botón para limpiar la lista
-        if st.button("🗑️ LIMPIAR MONITOR"):
+        # Control del Monitor
+        if st.button("🗑️ RESET MONITOR"):
             st.session_state.mis_activos = []
             st.rerun()
 
-    lista_activos = st.session_state.mis_activos
+    # Los activos que el monitor va a pintar
+    lista_activos = st.session_state.get("mis_activos", ["BTC-USD"])
+
+    # --- RENDERIZADO DEL MONITOR ---
     refresh_rate = st.sidebar.slider("REFRESCO (SEG)", 5, 60, 20)
     
-    # --- LA FUNCIÓN DE RENDERIZADO SE MANTIENE IGUAL ---
     @st.fragment(run_every=refresh_rate)
     def render_live_scanner():
         if not lista_activos:
-            st.info("La terminal está en espera. Busca y añade activos desde la barra lateral.")
+            st.info("Buscador listo. Accede a cualquier producto de Yahoo Finance.")
             return
 
         cols = st.columns(4)
         for i, ticker in enumerate(lista_activos):
             try:
+                # Aquí descargamos los datos del ticker que Yahoo nos dio
                 data = yf.download(ticker, period="1d", interval="1m", progress=False)
                 if not data.empty:
-                    # (Aquí va toda tu lógica de Monte Carlo y renderizado de tarjetas que ya tienes)
-                    # ...
+                    # (Tu código de Monte Carlo y tarjetas aquí...)
                     with cols[i % 4]:
-                        st.markdown(f"**{ticker}**") # Ejemplo simple para que veas que funciona
+                        st.write(f"**{ticker}**") 
+                        # ... resto de la lógica ...
             except:
                 continue
 
     render_live_scanner()
-# --- MÓDULO 2: TERMINAL INDIVIDUAL ---
-elif modo == "TERMINAL INDIVIDUAL":
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        ticker = st.text_input("TICKER", "NVDA").upper()
-        dias = st.slider("DÍAS", 7, 90, 30)
-        sims = st.slider("SIMULACIONES", 50, 500, 100)
-        go_btn = st.button("ANALIZAR")
-
-    if go_btn:
-        df, ret = get_data(ticker)
-        last_p = df.iloc[-1]
-        results = monte_carlo(last_p, ret.mean(), ret.std(), dias, sims)
-        
-        # Métricas Avanzadas
-        m1, m2, m3 = st.columns(3)
-        m1.metric("SHARPE RATIO", round((ret.mean()*252)/(ret.std()*np.sqrt(252)), 2))
-        m2.metric("SKEWNESS", round(skew(ret), 2))
-        m3.metric("KURTOSIS", round(kurtosis(ret), 2))
-        
-        # Gráfico Pro
-        fig = go.Figure()
-        for i in range(min(sims, 100)):
-            fig.add_trace(go.Scatter(y=results[:, i], mode='lines', line=dict(width=0.5, color='rgba(0, 255, 255, 0.1)'), showlegend=False))
-        
-        fig.update_layout(template="plotly_dark", paper_bgcolor="black", plot_bgcolor="black", title=f"PROYECCIÓN ESTOCÁSTICA {ticker}")
-        st.plotly_chart(fig, use_container_width=True)
 
 # --- MÓDULO 3: COMPARADOR ---
 elif modo == "COMPARADOR":
